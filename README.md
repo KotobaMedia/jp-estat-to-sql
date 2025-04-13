@@ -12,7 +12,7 @@ https://www.e-stat.go.jp/gis/statmap-search?page=1&type=2&aggregateUnitForBounda
 「世界測地系緯度経度」と「平面直角座標系」のデータが両方ありますが、このツールは「緯度経度」データのみ対応しています。
 
 ```shell
-$ jp-estat-to-sql areamap "host=127.0.0.1 dbname=jp-estat"
+$ jp-estat-to-sql "host=127.0.0.1 dbname=jp-estat" areamap
 ```
 
 インターネット接続、メモリ、SSD転送速度等によって処理時間が大幅に左右します。途中からの続きを再開するために幾つかのオプションがあるので、 `jp-estat-to-sql --help` で確認してください。
