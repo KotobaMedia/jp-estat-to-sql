@@ -50,6 +50,7 @@ struct MeshStats<'a> {
 
     /// The EPSG code the mesh code is based on.
     /// Valid values: 4301 (Tokyo Datum), 4612 (JGD2000), 6668 (JGD2011)
+    #[allow(dead_code)]
     datum: u16,
 }
 
