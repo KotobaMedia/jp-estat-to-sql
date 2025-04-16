@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 mod areamap;
 mod gdal;
+mod mesh;
 mod unzip;
 
 #[derive(Debug, Parser)]
@@ -26,6 +27,21 @@ struct Cli {
 enum Commands {
     /// 小地域（丁目・字等）の取り込み
     Areamap,
+
+    /// メッシュデータの取り組み
+    Mesh {
+        /// メッシュレベル (3, 4, or 5)
+        #[arg(long, value_parser = clap::value_parser!(u8).range(3..=5))]
+        level: u8,
+
+        /// 年度 (例: 2020)
+        #[arg(long)]
+        year: u16,
+
+        /// 調査名
+        #[arg(long)]
+        survey: String,
+    },
 }
 
 #[tokio::main]
@@ -35,6 +51,13 @@ async fn main() -> Result<()> {
     tokio::fs::create_dir_all(&tmp_dir).await?;
     match &cli.command {
         Commands::Areamap => areamap::process_areamap(&cli.postgres_url, &tmp_dir).await?,
+        Commands::Mesh {
+            level,
+            year,
+            survey,
+        } => {
+            mesh::process_mesh(&cli.postgres_url, &tmp_dir, *level, *year, survey).await?;
+        }
     }
 
     Ok(())

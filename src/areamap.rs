@@ -3,7 +3,7 @@ use futures::{StreamExt, stream};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use km_to_sql::metadata::{ColumnMetadata, TableMetadata};
 use reqwest::Client;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tokio::{fs::File, io::AsyncWriteExt as _};
 use tokio_postgres::NoTls;
 use url::Url;
@@ -83,7 +83,7 @@ struct DownloadedShape {
     shape_url: ShapeUrl,
 }
 
-async fn download_all_shapes(tmp_dir: &PathBuf) -> Result<Vec<DownloadedShape>> {
+async fn download_all_shapes(tmp_dir: &Path) -> Result<Vec<DownloadedShape>> {
     let urls = get_all_shape_urls();
     let client = Client::new();
 
@@ -105,7 +105,6 @@ async fn download_all_shapes(tmp_dir: &PathBuf) -> Result<Vec<DownloadedShape>> 
     let results = stream::iter(urls)
         .map(|url| {
             let client = client.clone();
-            let tmp_dir = tmp_dir.clone();
             let pb = dl_pb.clone();
             async move {
                 let filename = format!("{}-{}.zip", url.dlservey.year, url.pref_code);
@@ -124,7 +123,6 @@ async fn download_all_shapes(tmp_dir: &PathBuf) -> Result<Vec<DownloadedShape>> 
                     file.write_all(&content).await?;
                     file.flush().await?;
                     drop(file); // Close the file to ensure it's written
-                // println!("Downloaded: {:#?}", filepath);
                 } else {
                     println!("Failed to download: {} [{}]", url.url, response.status());
                     return Err(anyhow!("Failed to download")) as Result<_>;
@@ -140,7 +138,8 @@ async fn download_all_shapes(tmp_dir: &PathBuf) -> Result<Vec<DownloadedShape>> 
             async move {
                 let (shape_url, zip_path) = result?;
                 // Unzip the downloaded file
-                let shape_file = unzip::unzip_archive(&zip_path).await?;
+                let mut shape_file = unzip::unzip_archive(&zip_path).await?;
+                shape_file = unzip::find_file_with_ext(&shape_file, "shp").await?;
                 pb.inc(1);
                 Ok(DownloadedShape {
                     path: shape_file,
@@ -160,7 +159,7 @@ async fn download_all_shapes(tmp_dir: &PathBuf) -> Result<Vec<DownloadedShape>> 
 async fn import_shapes_to_postgis(
     downloaded_shapes: Vec<DownloadedShape>,
     postgres_url: &str,
-    tmp_dir: &PathBuf,
+    tmp_dir: &Path,
 ) -> Result<()> {
     let pb = ProgressBar::new(DL_SERVEY_IDS.len() as u64);
     let bar_style = ProgressStyle::default_bar()
@@ -171,7 +170,6 @@ async fn import_shapes_to_postgis(
     stream::iter(DL_SERVEY_IDS.iter())
         .map(|servey| {
             let pb = pb.clone();
-            let tmp_dir = tmp_dir.clone();
             let postgres_url = postgres_url.to_string();
             let shapes = downloaded_shapes
                 .iter()
@@ -296,13 +294,13 @@ async fn data_postprocessing_cleanup(postgres_url: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn process_areamap(postgres_url: &str, tmp_dir: &PathBuf) -> Result<()> {
+pub async fn process_areamap(postgres_url: &str, tmp_dir: &Path) -> Result<()> {
     // 1. Download all shapes and unzip them
     let downloaded_shapes = download_all_shapes(&tmp_dir).await?;
 
     // 2. Import the shapefiles into PostGIS
     // Each year is imported into a separate table. All prefectures will be imported into the same table.
-    import_shapes_to_postgis(downloaded_shapes, &postgres_url, &tmp_dir).await?;
+    import_shapes_to_postgis(downloaded_shapes, &postgres_url, tmp_dir).await?;
 
     // 3. Clean up the data & update metadata
     data_postprocessing_cleanup(&postgres_url).await?;
