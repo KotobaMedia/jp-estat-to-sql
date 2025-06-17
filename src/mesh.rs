@@ -7,6 +7,7 @@ use futures::{StreamExt as _, stream};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use jismesh::codes::JAPAN_LV1;
 use reqwest::Client;
+use serde::Deserialize;
 use std::{
     io::BufReader,
     path::{Path, PathBuf},
@@ -42,11 +43,17 @@ where
     }
 }
 
-struct MeshStats<'a> {
-    name: &'a str,
+#[derive(Debug, Deserialize, Clone)]
+struct MeshStatsConfig {
+    mesh_stats: Vec<MeshStats>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct MeshStats {
+    name: String,
     year: u16,
     meshlevel: u8,
-    stats_id: &'a str,
+    stats_id: String,
 
     /// The EPSG code the mesh code is based on.
     /// Valid values: 4301 (Tokyo Datum), 4612 (JGD2000), 6668 (JGD2011)
@@ -54,59 +61,20 @@ struct MeshStats<'a> {
     datum: u16,
 }
 
-const AVAILABLE: [MeshStats; 6] = [
-    // 2020年国勢調査 - 3次メッシュ
-    MeshStats {
-        name: "人口及び世帯",
-        year: 2020,
-        meshlevel: 3,
-        stats_id: "T001140",
-        datum: 6668,
-    },
-    MeshStats {
-        name: "人口移動、就業状態等及び従業地・通学地",
-        year: 2020,
-        meshlevel: 3,
-        stats_id: "T001143",
-        datum: 6668,
-    },
-    // 2020年国勢調査 - 4次メッシュ
-    MeshStats {
-        name: "人口及び世帯",
-        year: 2020,
-        meshlevel: 4,
-        stats_id: "T001141",
-        datum: 6668,
-    },
-    MeshStats {
-        name: "人口移動、就業状態等及び従業地・通学地",
-        year: 2020,
-        meshlevel: 4,
-        stats_id: "T001144",
-        datum: 6668,
-    },
-    // 2020年国勢調査 - 5次メッシュ
-    MeshStats {
-        name: "人口及び世帯",
-        year: 2020,
-        meshlevel: 5,
-        stats_id: "T001142",
-        datum: 6668,
-    },
-    MeshStats {
-        name: "人口移動、就業状態等及び従業地・通学地",
-        year: 2020,
-        meshlevel: 5,
-        stats_id: "T001145",
-        datum: 6668,
-    },
-];
+lazy_static::lazy_static! {
+    static ref AVAILABLE: Vec<MeshStats> = {
+        let json_str = include_str!("mesh_stats.json");
+        let config: MeshStatsConfig = serde_json::from_str(json_str)
+            .expect("Failed to parse mesh_stats.json");
+        config.mesh_stats
+    };
+}
 
 fn get_matching_mesh_stats(
     level: u8,
     year: u16,
     survey: &str,
-) -> Option<&'static MeshStats<'static>> {
+) -> Option<&'static MeshStats> {
     for mesh in AVAILABLE.iter() {
         if mesh.meshlevel == level && mesh.year == year && mesh.name == survey {
             return Some(mesh);
@@ -128,7 +96,7 @@ fn get_all_csv_urls(mesh_stats: &MeshStats) -> Vec<(u64, Url)> {
 }
 
 async fn download_all_files(
-    mesh_stats: &MeshStats<'static>,
+    mesh_stats: &MeshStats,
     tmp_dir: &Path,
 ) -> Result<Vec<PathBuf>> {
     let urls = get_all_csv_urls(mesh_stats);
@@ -230,7 +198,7 @@ fn infer_column_type(col: &str) -> &'static str {
 /// Returns a tuple of (table name, column names)
 async fn create_schema(
     client: &tokio_postgres::Client,
-    mesh_stats: &MeshStats<'static>,
+    mesh_stats: &MeshStats,
     file: &Path,
 ) -> Result<(String, Vec<String>)> {
     let mut rdr = open_shiftjis_csv(file.to_str().unwrap());

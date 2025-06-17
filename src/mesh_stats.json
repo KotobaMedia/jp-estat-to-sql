@@ -1,0 +1,46 @@
+{
+  "mesh_stats": [
+    {
+      "name": "人口及び世帯",
+      "year": 2020,
+      "meshlevel": 3,
+      "stats_id": "T001140",
+      "datum": 6668
+    },
+    {
+      "name": "人口移動、就業状態等及び従業地・通学地",
+      "year": 2020,
+      "meshlevel": 3,
+      "stats_id": "T001143",
+      "datum": 6668
+    },
+    {
+      "name": "人口及び世帯",
+      "year": 2020,
+      "meshlevel": 4,
+      "stats_id": "T001141",
+      "datum": 6668
+    },
+    {
+      "name": "人口移動、就業状態等及び従業地・通学地",
+      "year": 2020,
+      "meshlevel": 4,
+      "stats_id": "T001144",
+      "datum": 6668
+    },
+    {
+      "name": "人口及び世帯",
+      "year": 2020,
+      "meshlevel": 5,
+      "stats_id": "T001142",
+      "datum": 6668
+    },
+    {
+      "name": "人口移動、就業状態等及び従業地・通学地",
+      "year": 2020,
+      "meshlevel": 5,
+      "stats_id": "T001145",
+      "datum": 6668
+    }
+  ]
+} 
