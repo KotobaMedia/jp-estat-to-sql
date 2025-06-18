@@ -8,7 +8,7 @@ use tokio::{fs::File, io::AsyncWriteExt as _};
 use tokio_postgres::NoTls;
 use url::Url;
 
-use crate::{gdal, unzip};
+use crate::{gdal, unzip, download::{self, DownloadedItem}};
 
 const PREF_CODES: [&str; 47] = [
     "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16",
@@ -16,7 +16,7 @@ const PREF_CODES: [&str; 47] = [
     "33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43", "44", "45", "46", "47",
 ];
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct DlServey<'a> {
     year: u32,
     id: &'a str,
@@ -58,106 +58,30 @@ fn get_shape_url(dlservey_id: &str, code: &str, datum: &str) -> String {
     )
 }
 
-struct ShapeUrl {
+#[derive(Clone, Debug)]
+struct ShapeUrlMeta {
     dlservey: DlServey<'static>,
     pref_code: &'static str,
-    url: String,
+    url: Url,
 }
 
-fn get_all_shape_urls() -> Vec<ShapeUrl> {
+fn get_all_shape_urls() -> Vec<ShapeUrlMeta> {
     let mut urls = Vec::new();
     for code in PREF_CODES.iter() {
         for dlservey in DL_SERVEY_IDS.iter() {
-            urls.push(ShapeUrl {
+            let url_str = get_shape_url(dlservey.id, code, dlservey.datum);
+            urls.push(ShapeUrlMeta {
                 dlservey: dlservey.clone(),
                 pref_code: code,
-                url: get_shape_url(dlservey.id, code, dlservey.datum),
+                url: Url::parse(&url_str).expect("Failed to parse shape URL"),
             });
         }
     }
     urls
 }
 
-struct DownloadedShape {
-    path: PathBuf,
-    shape_url: ShapeUrl,
-}
-
-async fn download_all_shapes(tmp_dir: &Path) -> Result<Vec<DownloadedShape>> {
-    let urls = get_all_shape_urls();
-    let client = Client::new();
-
-    // Set a limit to how many downloads happen at once
-    let concurrency = 10;
-
-    let multibar = MultiProgress::new();
-    let bar_style = ProgressStyle::default_bar()
-        .template("{msg} [{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7}")?
-        .progress_chars("##-");
-    let dl_pb = multibar.add(ProgressBar::new(urls.len() as u64));
-    dl_pb.set_style(bar_style.clone());
-    dl_pb.set_message("Downloading shapes...");
-
-    let zip_pb = multibar.add(ProgressBar::new(urls.len() as u64));
-    zip_pb.set_style(bar_style);
-    zip_pb.set_message("Extracting shapes... ");
-
-    let results = stream::iter(urls)
-        .map(|url| {
-            let client = client.clone();
-            let pb = dl_pb.clone();
-            async move {
-                let filename = format!("{}-{}.zip", url.dlservey.year, url.pref_code);
-                let filepath = tmp_dir.join(&filename);
-
-                if filepath.exists() {
-                    pb.inc(1);
-                    // println!("Already exists: {:#?}", filepath);
-                    return Ok((url, filepath)) as Result<(ShapeUrl, PathBuf)>;
-                }
-
-                let response = client.get(&url.url).send().await?;
-                if response.status().is_success() {
-                    let content = response.bytes().await?;
-                    let mut file = File::create(&filepath).await?;
-                    file.write_all(&content).await?;
-                    file.flush().await?;
-                    drop(file); // Close the file to ensure it's written
-                } else {
-                    println!("Failed to download: {} [{}]", url.url, response.status());
-                    return Err(anyhow!("Failed to download")) as Result<_>;
-                }
-
-                pb.inc(1);
-                Ok((url, filepath))
-            }
-        })
-        .buffer_unordered(concurrency)
-        .map(|result| {
-            let pb = zip_pb.clone();
-            async move {
-                let (shape_url, zip_path) = result?;
-                // Unzip the downloaded file
-                let mut shape_file = unzip::unzip_archive(&zip_path).await?;
-                shape_file = unzip::find_file_with_ext(&shape_file, "shp").await?;
-                pb.inc(1);
-                Ok(DownloadedShape {
-                    path: shape_file,
-                    shape_url,
-                }) as Result<DownloadedShape>
-            }
-        })
-        .buffer_unordered(concurrency)
-        .collect::<Vec<_>>() // collect all the results to await everything
-        .await;
-
-    println!("All downloads completed.");
-
-    results.into_iter().collect()
-}
-
 async fn import_shapes_to_postgis(
-    downloaded_shapes: Vec<DownloadedShape>,
+    downloaded_shapes: Vec<DownloadedItem<ShapeUrlMeta>>,
     postgres_url: &str,
     tmp_dir: &Path,
 ) -> Result<()> {
@@ -171,22 +95,31 @@ async fn import_shapes_to_postgis(
         .map(|servey| {
             let pb = pb.clone();
             let postgres_url = postgres_url.to_string();
-            let shapes = downloaded_shapes
+            let shapes_for_year = downloaded_shapes
                 .iter()
-                .filter(|shape| shape.shape_url.dlservey.year == servey.year)
-                .map(|shape| shape.path.clone())
+                .filter(|item| item.metadata.dlservey.year == servey.year)
+                .map(|item| item.extracted_path.clone())
                 .collect::<Vec<_>>();
+            let tmp_dir = tmp_dir.to_path_buf();
             async move {
+                if shapes_for_year.is_empty() {
+                    println!("No shapes found for year {}, skipping VRT creation and import.", servey.year);
+                    pb.inc(1);
+                    return Ok(()) as Result<()>;
+                }
                 let vrt_path = tmp_dir.join(format!("jp_estat_areamap_{}.vrt", servey.year));
-                gdal::create_vrt(&vrt_path, &shapes).await?;
+                gdal::create_vrt(&vrt_path, &shapes_for_year).await?;
                 gdal::load_to_postgres(&vrt_path, &postgres_url).await?;
                 pb.inc(1);
                 Ok(()) as Result<()>
             }
         })
         .buffer_unordered(5)
-        .collect::<Vec<_>>()
-        .await;
+        .collect::<Vec<Result<()>>>()
+        .await
+        .into_iter()
+        .collect::<Result<()>>()?;
+
     println!("All imports completed.");
     Ok(())
 }
@@ -295,15 +228,27 @@ async fn data_postprocessing_cleanup(postgres_url: &str) -> Result<()> {
 }
 
 pub async fn process_areamap(postgres_url: &str, tmp_dir: &Path) -> Result<()> {
-    // 1. Download all shapes and unzip them
-    let downloaded_shapes = download_all_shapes(&tmp_dir).await?;
+    // 1. Get URLs and metadata
+    let shape_url_metas = get_all_shape_urls();
 
-    // 2. Import the shapefiles into PostGIS
-    // Each year is imported into a separate table. All prefectures will be imported into the same table.
-    import_shapes_to_postgis(downloaded_shapes, &postgres_url, tmp_dir).await?;
+    // 2. Download all shapes and unzip them using the generic function
+    let downloaded_items: Vec<DownloadedItem<ShapeUrlMeta>> = download::download_and_extract_all(
+        stream::iter(shape_url_metas),
+        |meta| meta.url.clone(),
+        |meta| format!("{}-{}.zip", meta.dlservey.year, meta.pref_code),
+        "shp", // Target extension is .shp
+        tmp_dir,
+        "Downloading Shapes...",
+        "Extracting Shapes...",
+        10, // Concurrency level
+    )
+    .await?;
 
-    // 3. Clean up the data & update metadata
-    data_postprocessing_cleanup(&postgres_url).await?;
+    // 3. Import the shapefiles into PostGIS
+    import_shapes_to_postgis(downloaded_items, postgres_url, tmp_dir).await?;
+
+    // 4. Clean up the data & update metadata
+    data_postprocessing_cleanup(postgres_url).await?;
 
     Ok(())
 }

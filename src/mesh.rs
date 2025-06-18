@@ -1,3 +1,4 @@
+use crate::download::{self, DownloadedItem};
 use crate::unzip;
 use anyhow::{Context, Result, anyhow};
 use csv::ReaderBuilder;
@@ -70,116 +71,13 @@ lazy_static::lazy_static! {
     };
 }
 
-fn get_matching_mesh_stats(
-    level: u8,
-    year: u16,
-    survey: &str,
-) -> Option<&'static MeshStats> {
+fn get_matching_mesh_stats(level: u8, year: u16, survey: &str) -> Option<&'static MeshStats> {
     for mesh in AVAILABLE.iter() {
         if mesh.meshlevel == level && mesh.year == year && mesh.name == survey {
             return Some(mesh);
         }
     }
     None
-}
-
-fn get_all_csv_urls(mesh_stats: &MeshStats) -> Vec<(u64, Url)> {
-    let mut out = Vec::with_capacity(JAPAN_LV1.len());
-    for mesh in JAPAN_LV1.iter() {
-        let url = format!(
-            "https://www.e-stat.go.jp/gis/statmap-search/data?statsId={}&code={}&downloadType=2",
-            mesh_stats.stats_id, mesh
-        );
-        out.push((*mesh, Url::parse(&url).unwrap()));
-    }
-    out
-}
-
-async fn download_all_files(
-    mesh_stats: &MeshStats,
-    tmp_dir: &Path,
-) -> Result<Vec<PathBuf>> {
-    let urls = get_all_csv_urls(mesh_stats);
-
-    // Set a limit to how many downloads happen at once
-    let concurrency = 10;
-    let client = Client::new();
-
-    let multibar = MultiProgress::new();
-    let bar_style = ProgressStyle::default_bar()
-        .template("{msg} [{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7}")?
-        .progress_chars("##-");
-    let dl_pb = multibar.add(ProgressBar::new(urls.len() as u64));
-    dl_pb.set_style(bar_style.clone());
-    dl_pb.set_message("Downloading CSVs...");
-
-    let zip_pb = multibar.add(ProgressBar::new(urls.len() as u64));
-    zip_pb.set_style(bar_style);
-    zip_pb.set_message("Extracting CSVs... ");
-
-    let results = stream::iter(urls)
-        .map(|(mesh, url)| {
-            let client = client.clone();
-            let pb = dl_pb.clone();
-            let zip_pb = zip_pb.clone();
-            async move {
-                let filename = format!("{}-{}-{}.zip", mesh_stats.year, mesh_stats.stats_id, mesh,);
-                let filepath = tmp_dir.join(&filename);
-
-                if filepath.exists() {
-                    pb.inc(1);
-                    // println!("Already exists: {:#?}", filepath);
-                    return Ok(Some(filepath)) as Result<Option<PathBuf>>;
-                }
-
-                let response = client.get(url.clone()).send().await?;
-                if response.status().is_success() {
-                    let content = response.bytes().await?;
-                    let mut file = File::create(&filepath).await?;
-                    file.write_all(&content).await?;
-                    file.flush().await?;
-                    drop(file); // Close the file to ensure it's written
-                } else if response.status() == reqwest::StatusCode::NOT_FOUND {
-                    pb.inc(1);
-                    zip_pb.dec_length(1);
-                    // Skip this file
-                    return Ok(None) as Result<Option<PathBuf>>;
-                } else {
-                    println!("Failed to download: {} [{}]", url, response.status());
-                    pb.inc(1);
-                    return Err(anyhow!("Failed to download")) as Result<_>;
-                }
-
-                pb.inc(1);
-                Ok(Some(filepath))
-            }
-        })
-        .buffer_unordered(concurrency)
-        .filter_map(|result| async {
-            match result {
-                Ok(Some(path)) => Some(Ok(path)),
-                Ok(None) => None,
-                Err(e) => Some(Err(e)),
-            }
-        })
-        .map(|result| {
-            let pb = zip_pb.clone();
-            async move {
-                let zip_path = result?;
-                // Unzip the downloaded file
-                let mut csv_file = unzip::unzip_archive(&zip_path).await?;
-                csv_file = unzip::find_file_with_ext(&csv_file, "txt").await?;
-                pb.inc(1);
-                Ok(csv_file) as Result<PathBuf>
-            }
-        })
-        .buffer_unordered(concurrency)
-        .collect::<Vec<_>>() // collect all the results to await everything
-        .await;
-
-    println!("All downloads completed.");
-
-    results.into_iter().collect()
 }
 
 fn infer_column_type(col: &str) -> &'static str {
@@ -315,10 +213,38 @@ pub async fn process_mesh(
 ) -> Result<()> {
     let mesh_stats = get_matching_mesh_stats(level, year, survey)
         .ok_or(anyhow!("一致する統計データが見つかりません"))?;
-    let files = download_all_files(mesh_stats, tmp_dir).await?;
+
+    // Prepare items for download
+    let urls_with_metadata: Vec<(u64, Url)> = JAPAN_LV1
+        .iter()
+        .map(|mesh| {
+            let url = format!(
+                "https://www.e-stat.go.jp/gis/statmap-search/data?statsId={}&code={}&downloadType=2",
+                mesh_stats.stats_id, mesh
+            );
+            (*mesh, Url::parse(&url).unwrap())
+        })
+        .collect();
+
+    // Use the generic download function
+    let downloaded_items: Vec<DownloadedItem<(u64, Url)>> = download::download_and_extract_all(
+        stream::iter(urls_with_metadata),
+        |(_mesh, url)| url.clone(),
+        |(mesh, _url)| format!("{}-{}-{}.zip", mesh_stats.year, mesh_stats.stats_id, mesh),
+        "txt", // e-Stat mesh data uses .txt extension for CSVs inside zip
+        tmp_dir,
+        "Downloading Mesh CSVs...",
+        "Extracting Mesh CSVs...",
+        10, // Concurrency level
+    )
+    .await?;
+
     println!("Files downloaded and extracted.");
 
-    let first = files.first().ok_or(anyhow!("No files found"))?;
+    let first_extracted_path = downloaded_items
+        .first()
+        .map(|item| item.extracted_path.clone())
+        .ok_or(anyhow!("No files found after download/extraction"))?;
 
     let (mut client, connection) = tokio_postgres::connect(postgres_url, NoTls).await?;
     tokio::spawn(async move {
@@ -327,19 +253,19 @@ pub async fn process_mesh(
         }
     });
 
-    let (table_name, columns) = create_schema(&client, mesh_stats, &first).await?;
+    let (table_name, columns) = create_schema(&client, mesh_stats, &first_extracted_path).await?;
     println!("Schema created: {}", table_name);
 
     let pb_style = ProgressStyle::default_bar()
         .template("{msg} [{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7}")?
         .progress_chars("##-");
-    let pb = ProgressBar::new(files.len() as u64);
+    let pb = ProgressBar::new(downloaded_items.len() as u64);
     pb.set_style(pb_style);
     pb.set_message("Importing CSVs...");
-    for file in files.iter() {
-        import_csv_to_postgres(&mut client, file, &table_name, &columns)
+    for item in downloaded_items.iter() {
+        import_csv_to_postgres(&mut client, &item.extracted_path, &table_name, &columns)
             .await
-            .with_context(|| format!("when importing {}", &file.display()))?;
+            .with_context(|| format!("when importing {}", &item.extracted_path.display()))?;
         pb.inc(1);
     }
     pb.finish();

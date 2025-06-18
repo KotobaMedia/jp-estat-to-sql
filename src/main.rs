@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 mod areamap;
+mod download;
 mod gdal;
 mod mesh;
 mod unzip;
