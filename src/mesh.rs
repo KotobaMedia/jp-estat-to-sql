@@ -1,20 +1,13 @@
 use crate::download::{self, DownloadedItem};
-use crate::unzip;
 use anyhow::{Context, Result, anyhow};
 use csv::ReaderBuilder;
 use encoding_rs::SHIFT_JIS;
 use encoding_rs_io::DecodeReaderBytesBuilder;
-use futures::{StreamExt as _, stream};
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use futures::stream;
+use indicatif::{ProgressBar, ProgressStyle};
 use jismesh::codes::JAPAN_LV1;
-use reqwest::Client;
 use serde::Deserialize;
-use std::{
-    io::BufReader,
-    path::{Path, PathBuf},
-    str::FromStr,
-};
-use tokio::{fs::File, io::AsyncWriteExt as _};
+use std::{io::BufReader, path::Path, str::FromStr};
 use tokio_postgres::{NoTls, types::ToSql};
 use url::Url;
 

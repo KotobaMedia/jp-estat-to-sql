@@ -1,14 +1,12 @@
-use anyhow::{Context as _, Result, anyhow};
+use anyhow::{Context as _, Result};
 use futures::{StreamExt, stream};
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use indicatif::{ProgressBar, ProgressStyle};
 use km_to_sql::metadata::{ColumnMetadata, TableMetadata};
-use reqwest::Client;
-use std::path::{Path, PathBuf};
-use tokio::{fs::File, io::AsyncWriteExt as _};
+use std::path::Path;
 use tokio_postgres::NoTls;
 use url::Url;
 
-use crate::{gdal, unzip, download::{self, DownloadedItem}};
+use crate::{gdal, download::{self, DownloadedItem}};
 
 const PREF_CODES: [&str; 47] = [
     "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16",

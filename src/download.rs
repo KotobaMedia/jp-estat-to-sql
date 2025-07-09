@@ -13,8 +13,8 @@ pub struct DownloadedItem<T> {
     pub metadata: T,
     /// The path to the extracted file (e.g., the .csv or .shp file).
     pub extracted_path: PathBuf,
-    /// The path to the original downloaded archive (e.g., the .zip file).
-    pub archive_path: PathBuf,
+    // /// The path to the original downloaded archive (e.g., the .zip file).
+    // pub archive_path: PathBuf,
 }
 
 /// Downloads a collection of files, reports progress, extracts them, and returns paths to the extracted files.
@@ -121,7 +121,7 @@ where
                 Ok(DownloadedItem {
                     metadata,
                     extracted_path,
-                    archive_path,
+                    // archive_path,
                 }) as Result<DownloadedItem<T>>
             }
         })
