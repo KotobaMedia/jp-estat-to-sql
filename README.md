@@ -155,6 +155,28 @@ jp-estat-to-sql "host=127.0.0.1 dbname=jp-estat" mesh --level 3 --year 2020 --su
 | `HTKSYORI` | SMALLINT | 処理区分 |
 | その他 | INTEGER | 統計値 |
 
+#### メッシュコードについて
+
+`KEY_CODE` フィールドには JIS X 0410 地域メッシュコードが格納されています。このメッシュコードを地理的なジオメトリに変換するには、[jismesh-plpgsql](https://github.com/kotobaMedia/jismesh-plpgsql) ライブラリを使用できます。
+
+このライブラリは、メッシュコードから動的にジオメトリを生成する PL/pgSQL 関数を提供しており、以下のような使い方ができます：
+
+```sql
+-- メッシュデータとジオメトリを結合
+SELECT
+    m."KEY_CODE",
+    m."人口（総数）",
+    mesh.geom
+FROM jp_estat_mesh_2020_T001140_3 m
+JOIN jismesh.to_meshcodes(
+    ST_SetSRID(ST_MakeBox2D(
+        ST_MakePoint(139.7, 35.7),
+        ST_MakePoint(135.7, 34.7)
+    ), 4326),
+    'Lv3'::jismesh.mesh_level
+) mesh ON m."KEY_CODE" = mesh.meshcode;
+```
+
 #### 使用例
 
 ```shell
