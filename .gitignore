@@ -1,6 +1,7 @@
 /target
 .envrc
 /tmp
+/output
 
 *.pmtiles
 *.pmtiles-*

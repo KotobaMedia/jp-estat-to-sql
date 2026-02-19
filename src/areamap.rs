@@ -6,7 +6,10 @@ use std::path::Path;
 use tokio_postgres::NoTls;
 use url::Url;
 
-use crate::{gdal, download::{self, DownloadedItem}};
+use crate::{
+    download::{self, DownloadedItem},
+    gdal,
+};
 
 const PREF_CODES: [&str; 47] = [
     "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16",
@@ -101,7 +104,10 @@ async fn import_shapes_to_postgis(
             let tmp_dir = tmp_dir.to_path_buf();
             async move {
                 if shapes_for_year.is_empty() {
-                    println!("No shapes found for year {}, skipping VRT creation and import.", servey.year);
+                    println!(
+                        "No shapes found for year {}, skipping VRT creation and import.",
+                        servey.year
+                    );
                     pb.inc(1);
                     return Ok(()) as Result<()>;
                 }

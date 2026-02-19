@@ -19,7 +19,7 @@ cargo install --path .
 ### 基本構文
 
 ```shell
-jp-estat-to-sql [OPTIONS] <POSTGRES_URL> <COMMAND>
+jp-estat-to-sql [OPTIONS] [POSTGRES_URL] <COMMAND>
 ```
 
 ### オプション
@@ -31,6 +31,8 @@ jp-estat-to-sql [OPTIONS] <POSTGRES_URL> <COMMAND>
 ### データベース接続
 
 `POSTGRES_URL` は PostgreSQL への接続文字列です。`ogr2ogr` に渡される形式で、冒頭の `PG:` は省略してください。
+
+`areamap` / `mesh` サブコマンドでは必須、`mesh-csv` サブコマンドでは不要です。
 
 例:
 ```shell
@@ -199,6 +201,29 @@ jp-estat-to-sql "host=127.0.0.1 dbname=jp-estat" mesh \
 - CSVファイルはShift_JISエンコーディングで処理
 - 空値や `*` は `NULL` として扱われる
 - `GASSAN` カラムはセミコロン区切りの配列として保存
+
+---
+
+### mesh-csv - メッシュデータのCSV結合出力
+
+メッシュ統計CSVをダウンロードして、1つのCSVに結合して出力します。データベースへの取り込みは行いません。
+
+#### 使用方法
+
+```shell
+jp-estat-to-sql mesh-csv \
+  --level 3 \
+  --year 2020 \
+  --survey "人口及び世帯" \
+  --output ./output/mesh_2020_lv3.csv
+```
+
+#### パラメータ
+
+- `--level <LEVEL>`: メッシュレベル（3, 4, または 5）
+- `--year <YEAR>`: 調査年度（例: 2020）
+- `--survey <SURVEY>`: 調査名
+- `--output <OUTPUT>`: 結合CSVの出力先パス
 
 ## トラブルシューティング
 
