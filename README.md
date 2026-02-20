@@ -32,7 +32,7 @@ jp-estat-to-sql [OPTIONS] [POSTGRES_URL] <COMMAND>
 
 `POSTGRES_URL` は PostgreSQL への接続文字列です。`ogr2ogr` に渡される形式で、冒頭の `PG:` は省略してください。
 
-`areamap` / `mesh` サブコマンドでは必須、`mesh-csv` サブコマンドでは不要です。
+`areamap` / `mesh` サブコマンドでは必須、`mesh-csv` / `mesh-tile` サブコマンドでは不要です。
 
 例:
 ```shell
@@ -104,7 +104,7 @@ jp-estat-to-sql "host=127.0.0.1 dbname=jp-estat" areamap
 #### 概要
 
 - **データソース**: e-Stat メッシュ統計データ
-- **メッシュレベル**: 3次メッシュ（約1km）、4次メッシュ（約500m）、5次メッシュ（約250m）
+- **メッシュレベル**: 3次メッシュ（約1km）、4次メッシュ（約500m）、5次メッシュ（約250m）、6次メッシュ（約125m）
 - **対象年度**: 2020年（現在対応）
 - **データ形式**: CSV（Shift_JISエンコーディング）
 
@@ -116,7 +116,7 @@ jp-estat-to-sql "host=127.0.0.1 dbname=jp-estat" mesh --level 3 --year 2020 --su
 
 #### パラメータ
 
-- `--level <LEVEL>`: メッシュレベル（3, 4, または 5）
+- `--level <LEVEL>`: メッシュレベル（3, 4, 5, または 6）
 - `--year <YEAR>`: 調査年度（例: 2020）
 - `--survey <SURVEY>`: 調査名
 
@@ -132,6 +132,8 @@ jp-estat-to-sql "host=127.0.0.1 dbname=jp-estat" mesh --level 3 --year 2020 --su
 | 4 | 人口移動、就業状態等及び従業地・通学地 | T001144 | 約500mメッシュの移動・就業データ |
 | 5 | 人口及び世帯 | T001142 | 約250mメッシュの人口・世帯データ |
 | 5 | 人口移動、就業状態等及び従業地・通学地 | T001145 | 約250mメッシュの移動・就業データ |
+| 6 | 人口及び世帯 | T001231 | 約125mメッシュの人口・世帯データ |
+| 6 | 人口移動、就業状態等及び従業地・通学地 | T001232 | 約125mメッシュの移動・就業データ |
 
 #### 処理内容
 
@@ -220,10 +222,55 @@ jp-estat-to-sql mesh-csv \
 
 #### パラメータ
 
-- `--level <LEVEL>`: メッシュレベル（3, 4, または 5）
+- `--level <LEVEL>`: メッシュレベル（3, 4, 5, または 6）
 - `--year <YEAR>`: 調査年度（例: 2020）
 - `--survey <SURVEY>`: 調査名
 - `--output <OUTPUT>`: 結合CSVの出力先パス
+
+---
+
+### mesh-tile - mesh-data-tile 形式でタイル出力
+
+メッシュ統計CSVをダウンロードし、`mesh-data-tile`（`MTI1`）形式の `.tile` ファイル群に変換します。データベースへの取り込みは行いません。
+
+#### 使用方法
+
+```shell
+jp-estat-to-sql mesh-tile \
+  --level 6 \
+  --tile-level 3 \
+  --bands 人口（総数）,人口（総数）女,世帯総数 \
+  --year 2020 \
+  --survey "人口及び世帯" \
+  --output-dir ./output/mesh_tiles_lv3_from_lv6
+```
+
+#### パラメータ
+
+- `--level <LEVEL>`: 入力データのメッシュレベル（3, 4, 5, または 6）
+- `--tile-level <TILE_LEVEL>`: 出力タイルのメッシュレベル（1〜6, `--level` 以下）。省略時は `--level` と同じ
+- `--bands <BANDS>`: 出力する統計項目名の並び（カンマ区切り）。省略時は全バンドをCSV順で出力
+- `--year <YEAR>`: 調査年度（例: 2020）
+- `--survey <SURVEY>`: 調査名
+- `--output-dir <OUTPUT_DIR>`: タイル出力先ディレクトリ
+
+#### 出力内容
+
+- `<meshcode>.tile`: JISメッシュコード単位の `mesh-data-tile` バイナリ
+- `metadata.json`: バンド定義、`no_data` 値、メッシュレベルなどの付帯情報
+
+#### タイル解像度の考え方
+
+- `--level` は「データの細かさ」、`--tile-level` は「1枚のタイルの大きさ」を表します。
+- 例:
+  - `--level 3 --tile-level 1`: Lv1タイルにLv3データを格納
+  - `--level 4 --tile-level 1`: Lv1タイルにLv4データを格納
+  - `--level 6 --tile-level 3`: Lv3タイルにLv6データを格納
+
+#### バンド指定の考え方
+
+- `--bands` を指定すると、その順序がタイル内のバンド順になります。
+- 例: `--bands 人口（総数）女,人口（総数）` と指定した場合、band 1 が `人口（総数）女`、band 2 が `人口（総数）` になります。
 
 ## トラブルシューティング
 
