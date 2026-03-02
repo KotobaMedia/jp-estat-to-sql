@@ -1,4 +1,4 @@
-# jp-estat-to-sql
+# jp-estat-util
 
 e-Stat でホスティングしている統計情報や地理情報をSQLデータベースに取り込むツール
 
@@ -19,7 +19,7 @@ cargo install --path .
 ### 基本構文
 
 ```shell
-jp-estat-to-sql [OPTIONS] [POSTGRES_URL] <COMMAND>
+jp-estat-util [OPTIONS] [POSTGRES_URL] <COMMAND>
 ```
 
 ### オプション
@@ -55,7 +55,7 @@ jp-estat-to-sql [OPTIONS] [POSTGRES_URL] <COMMAND>
 #### 使用方法
 
 ```shell
-jp-estat-to-sql "host=127.0.0.1 dbname=jp-estat" areamap
+jp-estat-util "host=127.0.0.1 dbname=jp-estat" areamap
 ```
 
 #### 処理内容
@@ -111,7 +111,7 @@ jp-estat-to-sql "host=127.0.0.1 dbname=jp-estat" areamap
 #### 使用方法
 
 ```shell
-jp-estat-to-sql "host=127.0.0.1 dbname=jp-estat" mesh --level 3 --year 2020 --survey "人口及び世帯"
+jp-estat-util "host=127.0.0.1 dbname=jp-estat" mesh --level 3 --year 2020 --survey "人口及び世帯"
 ```
 
 #### パラメータ
@@ -185,13 +185,13 @@ JOIN jismesh.to_meshcodes(
 
 ```shell
 # 3次メッシュの人口・世帯データを取得
-jp-estat-to-sql "host=127.0.0.1 dbname=jp-estat" mesh \
+jp-estat-util "host=127.0.0.1 dbname=jp-estat" mesh \
   --level 3 \
   --year 2020 \
   --survey "人口及び世帯"
 
 # 4次メッシュの移動・就業データを取得
-jp-estat-to-sql "host=127.0.0.1 dbname=jp-estat" mesh \
+jp-estat-util "host=127.0.0.1 dbname=jp-estat" mesh \
   --level 4 \
   --year 2020 \
   --survey "人口移動、就業状態等及び従業地・通学地"
@@ -213,7 +213,7 @@ jp-estat-to-sql "host=127.0.0.1 dbname=jp-estat" mesh \
 #### 使用方法
 
 ```shell
-jp-estat-to-sql mesh-csv \
+jp-estat-util mesh-csv \
   --level 3 \
   --year 2020 \
   --survey "人口及び世帯" \
@@ -236,7 +236,7 @@ jp-estat-to-sql mesh-csv \
 #### 使用方法
 
 ```shell
-jp-estat-to-sql mesh-tile \
+jp-estat-util mesh-tile \
   --level 6 \
   --tile-level 3 \
   --bands 人口（総数）,人口（総数）女,世帯総数 \

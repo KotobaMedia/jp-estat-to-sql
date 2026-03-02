@@ -1,5 +1,5 @@
 [package]
-name = "jp-estat-to-sql"
+name = "jp-estat-util"
 version = "0.1.0"
 edition = "2024"
 
@@ -11,11 +11,10 @@ encoding_rs = "0.8.35"
 encoding_rs_io = "0.1.7"
 futures = "0.3.31"
 indicatif = { version = "0.17.11", features = ["tokio"] }
-jismesh = "0.1"
+jismesh = "0.3"
 km-to-sql = "0.1.1"
 lazy_static = "1.4"
 mesh-data-tile = "0.1.1"
-ndarray = "0.16.1"
 regex = "1.11.1"
 reqwest = { version = "0.12.15", features = ["stream"] }
 serde = { version = "1.0", features = ["derive"] }

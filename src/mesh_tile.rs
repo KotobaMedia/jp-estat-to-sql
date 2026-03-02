@@ -9,7 +9,6 @@ use jismesh::{MeshLevel, codes::JAPAN_LV1, to_meshlevel};
 use mesh_data_tile::{
     CompressionMode, DType, Endianness, MeshKind, TileDimensions, TileEncodeInput, encode_tile,
 };
-use ndarray::arr1;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashSet},
@@ -262,7 +261,7 @@ fn mesh_level_from_u8(level: u8) -> Result<MeshLevel> {
 }
 
 fn validate_mesh_code_level(mesh_code: u64, expected_level: u8) -> Result<()> {
-    let levels = to_meshlevel(&arr1(&[mesh_code]))
+    let levels = to_meshlevel(&[mesh_code])
         .map_err(|e| anyhow!("failed to parse mesh code {}: {}", mesh_code, e))?;
     let actual_level = levels
         .first()
