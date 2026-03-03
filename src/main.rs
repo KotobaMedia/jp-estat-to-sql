@@ -7,6 +7,7 @@ mod download;
 mod gdal;
 mod mesh;
 mod mesh_csv;
+mod mesh_info;
 mod mesh_tile;
 mod unzip;
 
@@ -18,7 +19,7 @@ struct Cli {
     command: Commands,
 
     /// Postgresデータベースに接続する文字列。 ogr2ogr に渡されます。冒頭の `PG:` は省略してください。
-    /// `mesh-csv` / `mesh-tile` サブコマンドでは不要です。
+    /// `mesh-info` / `mesh-csv` / `mesh-tile` サブコマンドでは不要です。
     postgres_url: Option<String>,
 
     /// 中間ファイルの保存先 (Zip等)
@@ -95,6 +96,13 @@ enum Commands {
         #[arg(long)]
         output_dir: PathBuf,
     },
+
+    /// メッシュ統計の利用可能データ一覧を表示
+    MeshInfo {
+        /// 対象年度で絞り込み (カンマ区切り可。例: --year 2015,2020)
+        #[arg(long, value_delimiter = ',')]
+        year: Option<Vec<u16>>,
+    },
 }
 
 #[tokio::main]
@@ -147,6 +155,9 @@ async fn main() -> Result<()> {
                 output_dir,
             )
             .await?;
+        }
+        Commands::MeshInfo { year } => {
+            mesh_info::process_mesh_info(&tmp_dir, year.as_deref()).await?;
         }
     }
 
