@@ -45,26 +45,31 @@ pub async fn create_vrt(out: &PathBuf, shapes: &Vec<PathBuf>) -> Result<()> {
     Ok(())
 }
 
-pub async fn load_to_postgres(vrt: &PathBuf, postgres_url: &str) -> Result<()> {
+fn is_postgresql_output(output: &str, output_format: Option<&str>) -> bool {
+    output.starts_with("PG:")
+        || output.starts_with("pg:")
+        || output_format
+            .map(|v| v.eq_ignore_ascii_case("postgresql"))
+            .unwrap_or(false)
+}
+
+pub async fn load(vrt: &PathBuf, output: &str, output_format: Option<&str>) -> Result<()> {
     let mut cmd = Command::new("ogr2ogr");
-    let output = cmd
-        .arg("-f")
-        .arg("PostgreSQL")
-        .arg(format!("PG:{}", postgres_url))
-        // .arg("-skipfailures")
-        .arg("-lco")
-        .arg("GEOM_TYPE=geometry")
-        .arg("-lco")
-        .arg("OVERWRITE=YES")
-        .arg("-lco")
-        .arg("GEOMETRY_NAME=geom")
-        // .arg("-nlt")
-        // .arg("PROMOTE_TO_MULTI")
-        .arg("--config")
-        .arg("PG_USE_COPY=YES")
-        .arg(vrt)
-        .output()
-        .await?;
+    if let Some(format) = output_format {
+        cmd.arg("-f").arg(format);
+    }
+    cmd.arg("-overwrite");
+
+    if is_postgresql_output(output, output_format) {
+        cmd.arg("-lco")
+            .arg("GEOM_TYPE=geometry")
+            .arg("-lco")
+            .arg("GEOMETRY_NAME=geom")
+            .arg("--config")
+            .arg("PG_USE_COPY=YES");
+    }
+
+    let output = cmd.arg(output).arg(vrt).output().await?;
 
     if !output.status.success() {
         // the error message may contain malformed UTF8

@@ -1,5 +1,5 @@
 use anyhow::{Context as _, Result};
-use futures::{StreamExt, stream};
+use futures::stream;
 use indicatif::{ProgressBar, ProgressStyle};
 use km_to_sql::metadata::{ColumnMetadata, TableMetadata};
 use std::path::Path;
@@ -81,9 +81,10 @@ fn get_all_shape_urls() -> Vec<ShapeUrlMeta> {
     urls
 }
 
-async fn import_shapes_to_postgis(
+async fn import_shapes(
     downloaded_shapes: Vec<DownloadedItem<ShapeUrlMeta>>,
-    postgres_url: &str,
+    output: &str,
+    output_format: Option<&str>,
     tmp_dir: &Path,
 ) -> Result<()> {
     let pb = ProgressBar::new(DL_SERVEY_IDS.len() as u64);
@@ -91,41 +92,52 @@ async fn import_shapes_to_postgis(
         .template("{msg} [{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7}")?
         .progress_chars("##-");
     pb.set_style(bar_style);
-    pb.set_message("Importing shapes to PostGIS...");
-    stream::iter(DL_SERVEY_IDS.iter())
-        .map(|servey| {
-            let pb = pb.clone();
-            let postgres_url = postgres_url.to_string();
-            let shapes_for_year = downloaded_shapes
-                .iter()
-                .filter(|item| item.metadata.dlservey.year == servey.year)
-                .map(|item| item.extracted_path.clone())
-                .collect::<Vec<_>>();
-            let tmp_dir = tmp_dir.to_path_buf();
-            async move {
-                if shapes_for_year.is_empty() {
-                    println!(
-                        "No shapes found for year {}, skipping VRT creation and import.",
-                        servey.year
-                    );
-                    pb.inc(1);
-                    return Ok(()) as Result<()>;
-                }
-                let vrt_path = tmp_dir.join(format!("jp_estat_areamap_{}.vrt", servey.year));
-                gdal::create_vrt(&vrt_path, &shapes_for_year).await?;
-                gdal::load_to_postgres(&vrt_path, &postgres_url).await?;
-                pb.inc(1);
-                Ok(()) as Result<()>
-            }
-        })
-        .buffer_unordered(5)
-        .collect::<Vec<Result<()>>>()
-        .await
-        .into_iter()
-        .collect::<Result<()>>()?;
+    pb.set_message("Importing shapes with ogr2ogr...");
+
+    for servey in DL_SERVEY_IDS.iter() {
+        let shapes_for_year = downloaded_shapes
+            .iter()
+            .filter(|item| item.metadata.dlservey.year == servey.year)
+            .map(|item| item.extracted_path.clone())
+            .collect::<Vec<_>>();
+
+        if shapes_for_year.is_empty() {
+            println!(
+                "No shapes found for year {}, skipping VRT creation and import.",
+                servey.year
+            );
+            pb.inc(1);
+            continue;
+        }
+
+        let vrt_path = tmp_dir.join(format!("jp_estat_areamap_{}.vrt", servey.year));
+        gdal::create_vrt(&vrt_path, &shapes_for_year)
+            .await
+            .with_context(|| format!("when creating VRT: {}", &vrt_path.display()))?;
+        gdal::load(&vrt_path, output, output_format)
+            .await
+            .with_context(|| format!("when loading VRT: {}", &vrt_path.display()))?;
+        pb.inc(1);
+    }
 
     println!("All imports completed.");
     Ok(())
+}
+
+fn as_postgres_url<'a>(output: &'a str, output_format: Option<&str>) -> Option<&'a str> {
+    if let Some(stripped) = output
+        .strip_prefix("PG:")
+        .or_else(|| output.strip_prefix("pg:"))
+    {
+        return Some(stripped);
+    }
+    if output_format
+        .map(|v| v.eq_ignore_ascii_case("postgresql"))
+        .unwrap_or(false)
+    {
+        return Some(output);
+    }
+    None
 }
 
 async fn data_postprocessing_cleanup(postgres_url: &str) -> Result<()> {
@@ -231,7 +243,11 @@ async fn data_postprocessing_cleanup(postgres_url: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn process_areamap(postgres_url: &str, tmp_dir: &Path) -> Result<()> {
+pub async fn process_areamap(
+    output: &str,
+    output_format: Option<&str>,
+    tmp_dir: &Path,
+) -> Result<()> {
     // 1. Get URLs and metadata
     let shape_url_metas = get_all_shape_urls();
 
@@ -246,13 +262,22 @@ pub async fn process_areamap(postgres_url: &str, tmp_dir: &Path) -> Result<()> {
         "Extracting Shapes...",
         10, // Concurrency level
     )
-    .await?;
+    .await
+    .with_context(|| format!("when downloading and extracting shapes"))?;
 
-    // 3. Import the shapefiles into PostGIS
-    import_shapes_to_postgis(downloaded_items, postgres_url, tmp_dir).await?;
+    // 3. Import the shapefiles using ogr2ogr
+    import_shapes(downloaded_items, output, output_format, tmp_dir)
+        .await
+        .with_context(|| format!("when importing to ogr2ogr"))?;
 
-    // 4. Clean up the data & update metadata
-    data_postprocessing_cleanup(postgres_url).await?;
+    // 4. For PostgreSQL outputs, clean up the data & update metadata
+    if let Some(postgres_url) = as_postgres_url(output, output_format) {
+        data_postprocessing_cleanup(postgres_url).await?;
+    } else {
+        println!(
+            "PostgreSQL postprocessing was skipped because output is not a PostgreSQL datasource."
+        );
+    }
 
     Ok(())
 }

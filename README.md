@@ -6,7 +6,7 @@ GISデータについては、[e-Statのデータ注意情報](https://www.e-sta
 
 ## 概要
 
-このツールは、e-Stat（政府統計の総合窓口）から統計データと地理情報をダウンロードし、PostgreSQLデータベースに取り込むためのコマンドラインツールです。
+このツールは、e-Stat（政府統計の総合窓口）から統計データと地理情報をダウンロードし、サブコマンドに応じて PostgreSQL への取り込みやファイル出力を行うコマンドラインツールです。
 
 ## インストール
 
@@ -19,7 +19,7 @@ cargo install --path .
 ### 基本構文
 
 ```shell
-jp-estat-util [OPTIONS] [POSTGRES_URL] <COMMAND>
+jp-estat-util [OPTIONS] <COMMAND>
 ```
 
 ### オプション
@@ -28,22 +28,32 @@ jp-estat-util [OPTIONS] [POSTGRES_URL] <COMMAND>
 - `--help`: ヘルプを表示
 - `--version`: バージョンを表示
 
-### データベース接続
+### 出力先・接続先の指定
 
-`POSTGRES_URL` は PostgreSQL への接続文字列です。`ogr2ogr` に渡される形式で、冒頭の `PG:` は省略してください。
+- `areamap`: `--output` で `ogr2ogr` の出力先データソースを指定します（必須）。
+- `areamap`: `--output-format` で `ogr2ogr -f` のドライバ名を指定できます（任意）。
+- `mesh`: `--postgres-url` で PostgreSQL 接続文字列を指定します（必須）。
 
-`areamap` / `mesh` サブコマンドでは必須、`mesh-info` / `mesh-csv` / `mesh-tile` サブコマンドでは不要です。
+`mesh-info` / `mesh-csv` / `mesh-tile` サブコマンドでは DB 接続は不要です。
 
 例:
 ```shell
-"host=127.0.0.1 dbname=jp-estat user=postgres password=mypassword"
+jp-estat-util areamap \
+  --output "./output/jp_estat_areamap.gpkg" \
+  --output-format GPKG
+
+jp-estat-util mesh \
+  --postgres-url "host=127.0.0.1 dbname=jp-estat user=postgres password=mypassword" \
+  --level 3 \
+  --year 2020 \
+  --survey "人口及び世帯"
 ```
 
 ## サブコマンド
 
 ### areamap - 小地域（丁目・字等）の取り込み
 
-国勢調査の小地域境界データをダウンロードし、PostGISに取り込みます。
+国勢調査の小地域境界データをダウンロードし、`ogr2ogr` で指定した出力先に書き出します。
 
 #### 概要
 
@@ -55,20 +65,33 @@ jp-estat-util [OPTIONS] [POSTGRES_URL] <COMMAND>
 #### 使用方法
 
 ```shell
-jp-estat-util "host=127.0.0.1 dbname=jp-estat" areamap
+jp-estat-util areamap \
+  --output "./output/jp_estat_areamap.gpkg" \
+  --output-format GPKG
 ```
+
+```shell
+jp-estat-util areamap \
+  --output "PG:host=127.0.0.1 dbname=jp-estat user=postgres password=mypassword" \
+  --output-format PostgreSQL
+```
+
+#### パラメータ
+
+- `--output <OUTPUT>`: `ogr2ogr` に渡す出力先データソース（例: `PG:...`, `./out.gpkg`, `./out.geojson`）
+- `--output-format <OUTPUT_FORMAT>`: 出力ドライバ名（例: `PostgreSQL`, `GPKG`, `GeoJSON`）。省略時は `ogr2ogr` の既定/推測に従います。
 
 #### 処理内容
 
 1. **データダウンロード**: 47都道府県 × 5年度 = 235ファイルを並行ダウンロード
 2. **ファイル展開**: ZIPファイルからShapefileを抽出
-3. **PostGIS取り込み**: VRTファイルを作成してPostGISに一括取り込み
-4. **データ後処理**:
+3. **データ出力**: VRTファイルを作成し、`ogr2ogr` で指定先へ出力
+4. **データ後処理（PostgreSQL出力時のみ）**:
    - 水面調査区（hcode=8154）の削除
    - メタデータの登録
    - 座標系の設定（JGD2011: SRID 6668, JGD2000: SRID 4621）
 
-#### 作成されるテーブル
+#### PostgreSQL出力時に作成されるテーブル
 
 - `jp_estat_areamap_2000` - 2000年国勢調査小地域境界データ
 - `jp_estat_areamap_2005` - 2005年国勢調査小地域境界データ
@@ -76,7 +99,7 @@ jp-estat-util "host=127.0.0.1 dbname=jp-estat" areamap
 - `jp_estat_areamap_2015` - 2015年国勢調査小地域境界データ
 - `jp_estat_areamap_2020` - 2020年国勢調査小地域境界データ
 
-#### テーブル構造
+#### PostgreSQL出力時のテーブル構造
 
 | カラム名 | データ型 | 説明 |
 |---------|---------|------|
@@ -94,12 +117,15 @@ jp-estat-util "host=127.0.0.1 dbname=jp-estat" areamap
 - 処理時間はインターネット接続、メモリ、SSD転送速度に依存
 - 途中からの再開機能あり（`--help` で詳細確認）
 - ダウンロードしたZIPファイルとShapefileは `./tmp` に保存
+- `--output` が PostgreSQL 以外の場合、PostgreSQL向け後処理（`hcode=8154` 削除・メタデータ登録）は実行されません
 
 ---
 
 ### mesh - メッシュデータの取り込み
 
 国勢調査のメッシュ統計データをダウンロードし、PostgreSQLに取り込みます。
+
+`mesh-csv` と同じデータ・同じ指定項目（`--level` / `--year` / `--survey`）を使い、出力先だけが異なります（`mesh` は DB 取り込み）。
 
 #### 概要
 
@@ -111,11 +137,16 @@ jp-estat-util "host=127.0.0.1 dbname=jp-estat" areamap
 #### 使用方法
 
 ```shell
-jp-estat-util "host=127.0.0.1 dbname=jp-estat" mesh --level 3 --year 2020 --survey "人口及び世帯"
+jp-estat-util mesh \
+  --postgres-url "host=127.0.0.1 dbname=jp-estat" \
+  --level 3 \
+  --year 2020 \
+  --survey "人口及び世帯"
 ```
 
 #### パラメータ
 
+- `--postgres-url <POSTGRES_URL>`: PostgreSQL 接続文字列
 - `--level <LEVEL>`: メッシュレベル（3, 4, 5, または 6）
 - `--year <YEAR>`: 調査年度（例: 2020）
 - `--survey <SURVEY>`: 調査名
@@ -185,13 +216,15 @@ JOIN jismesh.to_meshcodes(
 
 ```shell
 # 3次メッシュの人口・世帯データを取得
-jp-estat-util "host=127.0.0.1 dbname=jp-estat" mesh \
+jp-estat-util mesh \
+  --postgres-url "host=127.0.0.1 dbname=jp-estat" \
   --level 3 \
   --year 2020 \
   --survey "人口及び世帯"
 
 # 4次メッシュの移動・就業データを取得
-jp-estat-util "host=127.0.0.1 dbname=jp-estat" mesh \
+jp-estat-util mesh \
+  --postgres-url "host=127.0.0.1 dbname=jp-estat" \
   --level 4 \
   --year 2020 \
   --survey "人口移動、就業状態等及び従業地・通学地"
@@ -245,6 +278,8 @@ jp-estat-util mesh-info --year 2015,2020
 ### mesh-csv - メッシュデータのCSV結合出力
 
 メッシュ統計CSVをダウンロードして、1つのCSVに結合して出力します。データベースへの取り込みは行いません。
+
+`mesh` と同じデータ・同じ指定項目（`--level` / `--year` / `--survey`）を使い、出力先だけが異なります（`mesh-csv` は CSV 出力）。
 
 #### 使用方法
 

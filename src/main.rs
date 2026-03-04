@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
@@ -18,10 +18,6 @@ struct Cli {
     #[command(subcommand)]
     command: Commands,
 
-    /// Postgresデータベースに接続する文字列。 ogr2ogr に渡されます。冒頭の `PG:` は省略してください。
-    /// `mesh-info` / `mesh-csv` / `mesh-tile` サブコマンドでは不要です。
-    postgres_url: Option<String>,
-
     /// 中間ファイルの保存先 (Zip等)
     /// デフォルトは `./tmp` となります。
     #[arg(long)]
@@ -31,10 +27,24 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Commands {
     /// 小地域（丁目・字等）の取り込み
-    Areamap,
+    Areamap {
+        /// ogr2ogr に渡す出力先データソース
+        /// 例: "PG:host=127.0.0.1 dbname=jp_estat", "./output/areamap.gpkg"
+        #[arg(long)]
+        output: String,
 
-    /// メッシュデータの取り込み
+        /// ogr2ogr の出力フォーマット名 (省略時は ogr2ogr の既定/推測に従います)
+        /// 例: PostgreSQL, GPKG, GeoJSON
+        #[arg(long)]
+        output_format: Option<String>,
+    },
+
+    /// `mesh-csv` と同等の入力でメッシュデータを取り込み（出力先: PostgreSQL）
     Mesh {
+        /// PostgreSQLデータベースに接続する文字列
+        #[arg(long)]
+        postgres_url: String,
+
         /// メッシュレベル (3, 4, 5, or 6)
         #[arg(long, value_parser = clap::value_parser!(u8).range(3..=6))]
         level: u8,
@@ -48,7 +58,7 @@ enum Commands {
         survey: String,
     },
 
-    /// メッシュデータのCSVをダウンロードして1ファイルに結合
+    /// `mesh` と同等の入力でメッシュデータを取得（出力先: 結合CSV）
     MeshCsv {
         /// メッシュレベル (3, 4, 5, or 6)
         #[arg(long, value_parser = clap::value_parser!(u8).range(3..=6))]
@@ -111,22 +121,18 @@ async fn main() -> Result<()> {
     let tmp_dir = cli.tmp_dir.unwrap_or_else(|| PathBuf::from("./tmp"));
     tokio::fs::create_dir_all(&tmp_dir).await?;
     match &cli.command {
-        Commands::Areamap => {
-            let postgres_url = cli
-                .postgres_url
-                .as_deref()
-                .ok_or(anyhow!("areamap サブコマンドでは POSTGRES_URL が必要です"))?;
-            areamap::process_areamap(postgres_url, &tmp_dir).await?;
+        Commands::Areamap {
+            output,
+            output_format,
+        } => {
+            areamap::process_areamap(output, output_format.as_deref(), &tmp_dir).await?;
         }
         Commands::Mesh {
+            postgres_url,
             level,
             year,
             survey,
         } => {
-            let postgres_url = cli
-                .postgres_url
-                .as_deref()
-                .ok_or(anyhow!("mesh サブコマンドでは POSTGRES_URL が必要です"))?;
             mesh::process_mesh(postgres_url, &tmp_dir, *level, *year, survey).await?;
         }
         Commands::MeshCsv {
