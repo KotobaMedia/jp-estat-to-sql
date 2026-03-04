@@ -60,8 +60,8 @@ jp-estat-util mesh \
 
 - **データソース**: [e-Stat 小地域境界データ](https://www.e-stat.go.jp/gis/statmap-search?page=1&type=2&aggregateUnitForBoundary=A&toukeiCode=00200521)
 - **対象年度**: 2000, 2005, 2010, 2015, 2020年
-- **座標系**: JGD2011（優先）、JGD2000（フォールバック）
-- **データ形式**: 緯度経度データ（平面直角座標系は非対応）
+- **座標系**: 既定はJGD2011/JGD2000（`--output-crs` で変更可能）
+- **データ形式**: 元データは緯度経度（必要に応じて `--output-crs` で変換可能）
 
 #### 使用方法
 
@@ -84,10 +84,19 @@ jp-estat-util areamap \
   --year 2020
 ```
 
+```shell
+jp-estat-util areamap \
+  --output "./output/jp_estat_areamap_2020.geojson" \
+  --output-format GeoJSON \
+  --output-crs EPSG:4326 \
+  --year 2020
+```
+
 #### パラメータ
 
 - `--output <OUTPUT>`: `ogr2ogr` に渡す出力先データソース（例: `PG:...`, `./out.gpkg`, `./out.geojson`）
 - `--output-format <OUTPUT_FORMAT>`: 出力ドライバ名（例: `PostgreSQL`, `GPKG`, `GeoJSON`）。省略時は `ogr2ogr` の既定/推測に従います。
+- `--output-crs <OUTPUT_CRS>`: 出力座標参照系（`ogr2ogr -t_srs` に渡す値。例: `EPSG:4326`）
 - `--year <YEAR>`: 対象年度で絞り込み（単年のみ。`2000`, `2005`, `2010`, `2015`, `2020`）
 
 `Parquet` / `GeoJSON` / `FlatGeobuf` / `CSV` などの単一レイヤー形式では、`--year` が必須です。  
@@ -99,9 +108,10 @@ jp-estat-util areamap \
 2. **ファイル展開**: ZIPファイルからShapefileを抽出
 3. **データ出力**: VRTファイルを作成し、`ogr2ogr` で指定先へ出力
    - 水面調査区（`HCODE=8154`）は `ogr2ogr` の抽出条件で除外
+   - `--output-crs` 指定時は `ogr2ogr -t_srs` で座標変換
 4. **データ後処理（PostgreSQL出力時のみ）**:
    - メタデータの登録
-   - 座標系の設定（JGD2011: SRID 6668, JGD2000: SRID 4621）
+   - 座標系の設定（既定: JGD2011 SRID 6668 / JGD2000 SRID 4621。`--output-crs` が `EPSG:xxxx` の場合はそのSRIDを使用）
 
 #### PostgreSQL出力時に作成されるテーブル
 
@@ -131,6 +141,7 @@ jp-estat-util areamap \
 - 処理時間はインターネット接続、メモリ、SSD転送速度に依存
 - 途中からの再開機能あり（`--help` で詳細確認）
 - ダウンロードしたZIPファイルとShapefileは `./tmp` に保存
+- PostgreSQL出力で `--output-crs` を使う場合、`EPSG:xxxx` 形式以外ではメタデータのSRIDが特定できず `geometry(polygon)` として登録されます
 - `--output` が PostgreSQL 以外の場合、PostgreSQL向け後処理（メタデータ登録）は実行されません（`HCODE=8154` の除外は出力形式に関係なく実行されます）
 
 ---

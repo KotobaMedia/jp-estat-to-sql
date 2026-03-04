@@ -146,6 +146,7 @@ async fn import_shapes(
     output: &str,
     output_format: Option<&str>,
     output_layer_name: Option<&str>,
+    output_crs: Option<&str>,
     tmp_dir: &Path,
 ) -> Result<()> {
     let pb = ProgressBar::new(target_serveys.len() as u64);
@@ -181,9 +182,10 @@ async fn import_shapes(
             output_format,
             output_layer_name,
             Some(AREAMAP_OGR2OGR_WHERE),
+            output_crs,
         )
-            .await
-            .with_context(|| format!("when loading VRT: {}", &vrt_path.display()))?;
+        .await
+        .with_context(|| format!("when loading VRT: {}", &vrt_path.display()))?;
         pb.inc(1);
     }
 
@@ -207,9 +209,10 @@ fn as_postgres_url<'a>(output: &'a str, output_format: Option<&str>) -> Option<&
     None
 }
 
-async fn data_postprocessing_cleanup(
+async fn insert_postgres_metadata(
     postgres_url: &str,
     target_serveys: &[DlServey<'static>],
+    output_crs: Option<&str>,
 ) -> Result<()> {
     let (client, connection) = tokio_postgres::connect(postgres_url, NoTls)
         .await
@@ -222,12 +225,18 @@ async fn data_postprocessing_cleanup(
 
     km_to_sql::postgres::init_schema(&client).await?;
 
+    if let Some(crs) = output_crs {
+        if parse_output_srid(crs).is_none() {
+            println!(
+                "Warning: could not infer EPSG SRID from --output-crs='{}'. PostgreSQL metadata will use geometry(polygon) without SRID.",
+                crs
+            );
+        }
+    }
+
     for servey in target_serveys.iter() {
         let table_name = format!("jp_estat_areamap_{}", servey.year);
-        let mut srid = "6668"; // 日本測地系2011
-        if servey.datum == "2000" {
-            srid = "4621"; // 日本測地系2000
-        }
+        let geom_data_type = metadata_geom_data_type(servey, output_crs);
 
         let columns: Vec<ColumnMetadata> = vec![
             ColumnMetadata {
@@ -240,7 +249,7 @@ async fn data_postprocessing_cleanup(
             ColumnMetadata {
                 name: "geom".to_string(),
                 desc: Some("Geometry".to_string()),
-                data_type: format!("geometry(polygon, {})", srid),
+                data_type: geom_data_type,
                 foreign_key: None,
                 enum_values: None,
             },
@@ -309,9 +318,58 @@ async fn data_postprocessing_cleanup(
     Ok(())
 }
 
+fn default_geom_srid(datum: &str) -> i32 {
+    if datum == "2000" {
+        4621 // 日本測地系2000
+    } else {
+        6668 // 日本測地系2011
+    }
+}
+
+fn parse_output_srid(output_crs: &str) -> Option<i32> {
+    let value = output_crs.trim();
+    if value.is_empty() {
+        return None;
+    }
+
+    if let Ok(srid) = value.parse::<i32>() {
+        return Some(srid);
+    }
+
+    let upper_value = value.to_ascii_uppercase();
+    for marker in ["EPSG::", "EPSG:"] {
+        if let Some((_, rest)) = upper_value.rsplit_once(marker) {
+            let digits = rest
+                .trim_start_matches(':')
+                .trim_start()
+                .chars()
+                .take_while(|c| c.is_ascii_digit())
+                .collect::<String>();
+            if !digits.is_empty() {
+                if let Ok(srid) = digits.parse::<i32>() {
+                    return Some(srid);
+                }
+            }
+        }
+    }
+
+    None
+}
+
+fn metadata_geom_data_type(servey: &DlServey<'_>, output_crs: Option<&str>) -> String {
+    match output_crs {
+        Some(crs) => match parse_output_srid(crs) {
+            Some(srid) => format!("geometry(polygon, {})", srid),
+            None => "geometry(polygon)".to_string(),
+        },
+        None => format!("geometry(polygon, {})", default_geom_srid(servey.datum)),
+    }
+}
+
 pub async fn process_areamap(
     output: &str,
     output_format: Option<&str>,
+    output_crs: Option<&str>,
     tmp_dir: &Path,
     survey_year: Option<u32>,
 ) -> Result<()> {
@@ -358,6 +416,7 @@ pub async fn process_areamap(
         output,
         output_format,
         output_layer_name.as_deref(),
+        output_crs,
         tmp_dir,
     )
     .await
@@ -365,7 +424,7 @@ pub async fn process_areamap(
 
     // 4. For PostgreSQL outputs, insert metadata
     if let Some(postgres_url) = as_postgres_url(output, output_format) {
-        data_postprocessing_cleanup(postgres_url, &target_serveys).await?;
+        insert_postgres_metadata(postgres_url, &target_serveys, output_crs).await?;
     } else {
         println!(
             "PostgreSQL metadata insertion was skipped because output is not a PostgreSQL datasource."
@@ -377,7 +436,7 @@ pub async fn process_areamap(
 
 #[cfg(test)]
 mod tests {
-    use super::{is_single_layer_output, output_layer_name_from_destination};
+    use super::{is_single_layer_output, output_layer_name_from_destination, parse_output_srid};
 
     #[test]
     fn detects_single_layer_by_extension() {
@@ -405,5 +464,14 @@ mod tests {
             Some("areamap".to_string())
         );
         assert_eq!(output_layer_name_from_destination(""), None);
+    }
+
+    #[test]
+    fn parses_output_srid_from_common_formats() {
+        assert_eq!(parse_output_srid("4326"), Some(4326));
+        assert_eq!(parse_output_srid("EPSG:6668"), Some(6668));
+        assert_eq!(parse_output_srid("urn:ogc:def:crs:EPSG::4612"), Some(4612));
+        assert_eq!(parse_output_srid("epsg:3857"), Some(3857));
+        assert_eq!(parse_output_srid("CRS84"), None);
     }
 }

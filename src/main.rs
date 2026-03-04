@@ -38,6 +38,11 @@ enum Commands {
         #[arg(long)]
         output_format: Option<String>,
 
+        /// 出力座標参照系 (ogr2ogr -t_srs に渡します)
+        /// 例: EPSG:4326, EPSG:3857
+        #[arg(long)]
+        output_crs: Option<String>,
+
         /// 対象年度で絞り込み (単年のみ。例: --year 2020)
         #[arg(long)]
         year: Option<u32>,
@@ -128,9 +133,17 @@ async fn main() -> Result<()> {
         Commands::Areamap {
             output,
             output_format,
+            output_crs,
             year,
         } => {
-            areamap::process_areamap(output, output_format.as_deref(), &tmp_dir, *year).await?;
+            areamap::process_areamap(
+                output,
+                output_format.as_deref(),
+                output_crs.as_deref(),
+                &tmp_dir,
+                *year,
+            )
+            .await?;
         }
         Commands::Mesh {
             postgres_url,

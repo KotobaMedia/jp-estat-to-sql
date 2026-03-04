@@ -99,6 +99,7 @@ pub async fn load(
     output_format: Option<&str>,
     output_layer_name: Option<&str>,
     where_clause: Option<&str>,
+    output_crs: Option<&str>,
 ) -> Result<()> {
     let mut cmd = Command::new("ogr2ogr");
     if let Some(format) = output_format {
@@ -110,6 +111,9 @@ pub async fn load(
     }
     if let Some(where_clause) = where_clause {
         cmd.arg("-where").arg(where_clause);
+    }
+    if let Some(output_crs) = output_crs {
+        cmd.arg("-t_srs").arg(output_crs);
     }
 
     if is_postgresql_output(output, output_format) {
