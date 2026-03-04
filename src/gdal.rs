@@ -98,6 +98,7 @@ pub async fn load(
     output: &str,
     output_format: Option<&str>,
     output_layer_name: Option<&str>,
+    where_clause: Option<&str>,
 ) -> Result<()> {
     let mut cmd = Command::new("ogr2ogr");
     if let Some(format) = output_format {
@@ -106,6 +107,9 @@ pub async fn load(
     cmd.arg("-overwrite");
     if let Some(layer_name) = output_layer_name {
         cmd.arg("-nln").arg(layer_name);
+    }
+    if let Some(where_clause) = where_clause {
+        cmd.arg("-where").arg(where_clause);
     }
 
     if is_postgresql_output(output, output_format) {

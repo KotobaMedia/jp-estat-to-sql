@@ -52,6 +52,8 @@ const DL_SERVEY_IDS: [DlServey; 5] = [
     }, // 2000年
 ];
 
+const AREAMAP_OGR2OGR_WHERE: &str = "HCODE IS NULL OR HCODE <> 8154";
+
 fn get_shape_url(dlservey_id: &str, code: &str, datum: &str) -> String {
     format!(
         "https://www.e-stat.go.jp/gis/statmap-search/data?dlserveyId={}&code={}&coordSys=1&format=shape&downloadType=5&datum={}",
@@ -173,7 +175,13 @@ async fn import_shapes(
         gdal::create_vrt(&vrt_path, &shapes_for_year)
             .await
             .with_context(|| format!("when creating VRT: {}", &vrt_path.display()))?;
-        gdal::load(&vrt_path, output, output_format, output_layer_name)
+        gdal::load(
+            &vrt_path,
+            output,
+            output_format,
+            output_layer_name,
+            Some(AREAMAP_OGR2OGR_WHERE),
+        )
             .await
             .with_context(|| format!("when loading VRT: {}", &vrt_path.display()))?;
         pb.inc(1);
@@ -220,10 +228,6 @@ async fn data_postprocessing_cleanup(
         if servey.datum == "2000" {
             srid = "4621"; // 日本測地系2000
         }
-
-        // hcode = 8154 は「水面調査区」、今回のデータには不要なので削除する
-        let query = format!("DELETE FROM {} WHERE hcode = 8154", table_name);
-        client.execute(&query, &[]).await?;
 
         let columns: Vec<ColumnMetadata> = vec![
             ColumnMetadata {
@@ -359,12 +363,12 @@ pub async fn process_areamap(
     .await
     .with_context(|| format!("when importing to ogr2ogr"))?;
 
-    // 4. For PostgreSQL outputs, clean up the data & update metadata
+    // 4. For PostgreSQL outputs, insert metadata
     if let Some(postgres_url) = as_postgres_url(output, output_format) {
         data_postprocessing_cleanup(postgres_url, &target_serveys).await?;
     } else {
         println!(
-            "PostgreSQL postprocessing was skipped because output is not a PostgreSQL datasource."
+            "PostgreSQL metadata insertion was skipped because output is not a PostgreSQL datasource."
         );
     }
 

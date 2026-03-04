@@ -98,8 +98,8 @@ jp-estat-util areamap \
 1. **データダウンロード**: 47都道府県 × 対象年度数（省略時は5年度）を並行ダウンロード
 2. **ファイル展開**: ZIPファイルからShapefileを抽出
 3. **データ出力**: VRTファイルを作成し、`ogr2ogr` で指定先へ出力
+   - 水面調査区（`HCODE=8154`）は `ogr2ogr` の抽出条件で除外
 4. **データ後処理（PostgreSQL出力時のみ）**:
-   - 水面調査区（hcode=8154）の削除
    - メタデータの登録
    - 座標系の設定（JGD2011: SRID 6668, JGD2000: SRID 4621）
 
@@ -131,7 +131,7 @@ jp-estat-util areamap \
 - 処理時間はインターネット接続、メモリ、SSD転送速度に依存
 - 途中からの再開機能あり（`--help` で詳細確認）
 - ダウンロードしたZIPファイルとShapefileは `./tmp` に保存
-- `--output` が PostgreSQL 以外の場合、PostgreSQL向け後処理（`hcode=8154` 削除・メタデータ登録）は実行されません
+- `--output` が PostgreSQL 以外の場合、PostgreSQL向け後処理（メタデータ登録）は実行されません（`HCODE=8154` の除外は出力形式に関係なく実行されます）
 
 ---
 
