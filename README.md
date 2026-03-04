@@ -32,6 +32,7 @@ jp-estat-util [OPTIONS] <COMMAND>
 
 - `areamap`: `--output` で `ogr2ogr` の出力先データソースを指定します（必須）。
 - `areamap`: `--output-format` で `ogr2ogr -f` のドライバ名を指定できます（任意）。
+- `areamap`: `--year` で対象年度を1つに絞り込めます（任意）。
 - `mesh`: `--postgres-url` で PostgreSQL 接続文字列を指定します（必須）。
 
 `mesh-info` / `mesh-csv` / `mesh-tile` サブコマンドでは DB 接続は不要です。
@@ -76,14 +77,25 @@ jp-estat-util areamap \
   --output-format PostgreSQL
 ```
 
+```shell
+jp-estat-util areamap \
+  --output "./output/jp_estat_areamap_2020.gpkg" \
+  --output-format GPKG \
+  --year 2020
+```
+
 #### パラメータ
 
 - `--output <OUTPUT>`: `ogr2ogr` に渡す出力先データソース（例: `PG:...`, `./out.gpkg`, `./out.geojson`）
 - `--output-format <OUTPUT_FORMAT>`: 出力ドライバ名（例: `PostgreSQL`, `GPKG`, `GeoJSON`）。省略時は `ogr2ogr` の既定/推測に従います。
+- `--year <YEAR>`: 対象年度で絞り込み（単年のみ。`2000`, `2005`, `2010`, `2015`, `2020`）
+
+`Parquet` / `GeoJSON` / `FlatGeobuf` / `CSV` などの単一レイヤー形式では、`--year` が必須です。  
+この場合、出力レイヤー名は出力ファイル名（拡張子除く）に自動調整されます。
 
 #### 処理内容
 
-1. **データダウンロード**: 47都道府県 × 5年度 = 235ファイルを並行ダウンロード
+1. **データダウンロード**: 47都道府県 × 対象年度数（省略時は5年度）を並行ダウンロード
 2. **ファイル展開**: ZIPファイルからShapefileを抽出
 3. **データ出力**: VRTファイルを作成し、`ogr2ogr` で指定先へ出力
 4. **データ後処理（PostgreSQL出力時のみ）**:
@@ -98,6 +110,8 @@ jp-estat-util areamap \
 - `jp_estat_areamap_2010` - 2010年国勢調査小地域境界データ
 - `jp_estat_areamap_2015` - 2015年国勢調査小地域境界データ
 - `jp_estat_areamap_2020` - 2020年国勢調査小地域境界データ
+
+`--year` を指定した場合は、該当年度のテーブルのみ作成されます。
 
 #### PostgreSQL出力時のテーブル構造
 

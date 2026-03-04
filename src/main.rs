@@ -37,6 +37,10 @@ enum Commands {
         /// 例: PostgreSQL, GPKG, GeoJSON
         #[arg(long)]
         output_format: Option<String>,
+
+        /// 対象年度で絞り込み (単年のみ。例: --year 2020)
+        #[arg(long)]
+        year: Option<u32>,
     },
 
     /// `mesh-csv` と同等の入力でメッシュデータを取り込み（出力先: PostgreSQL）
@@ -124,8 +128,9 @@ async fn main() -> Result<()> {
         Commands::Areamap {
             output,
             output_format,
+            year,
         } => {
-            areamap::process_areamap(output, output_format.as_deref(), &tmp_dir).await?;
+            areamap::process_areamap(output, output_format.as_deref(), &tmp_dir, *year).await?;
         }
         Commands::Mesh {
             postgres_url,

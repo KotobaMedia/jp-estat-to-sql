@@ -1,4 +1,4 @@
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, bail};
 use futures::stream;
 use indicatif::{ProgressBar, ProgressStyle};
 use km_to_sql::metadata::{ColumnMetadata, TableMetadata};
@@ -66,10 +66,29 @@ struct ShapeUrlMeta {
     url: Url,
 }
 
-fn get_all_shape_urls() -> Vec<ShapeUrlMeta> {
+fn get_target_serveys(survey_year: Option<u32>) -> Result<Vec<DlServey<'static>>> {
+    if let Some(year) = survey_year {
+        if let Some(servey) = DL_SERVEY_IDS.iter().find(|servey| servey.year == year) {
+            return Ok(vec![servey.clone()]);
+        }
+        let available_years = DL_SERVEY_IDS
+            .iter()
+            .map(|servey| servey.year.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        bail!(
+            "Unsupported survey year: {}. Available years: {}",
+            year,
+            available_years
+        );
+    }
+    Ok(DL_SERVEY_IDS.iter().cloned().collect())
+}
+
+fn get_all_shape_urls(target_serveys: &[DlServey<'static>]) -> Vec<ShapeUrlMeta> {
     let mut urls = Vec::new();
     for code in PREF_CODES.iter() {
-        for dlservey in DL_SERVEY_IDS.iter() {
+        for dlservey in target_serveys.iter() {
             let url_str = get_shape_url(dlservey.id, code, dlservey.datum);
             urls.push(ShapeUrlMeta {
                 dlservey: dlservey.clone(),
@@ -81,20 +100,60 @@ fn get_all_shape_urls() -> Vec<ShapeUrlMeta> {
     urls
 }
 
+fn is_single_layer_output(output: &str, output_format: Option<&str>) -> bool {
+    if as_postgres_url(output, output_format).is_some() {
+        return false;
+    }
+
+    if output_format
+        .map(|v| {
+            v.eq_ignore_ascii_case("parquet")
+                || v.eq_ignore_ascii_case("geojson")
+                || v.eq_ignore_ascii_case("flatgeobuf")
+                || v.eq_ignore_ascii_case("csv")
+        })
+        .unwrap_or(false)
+    {
+        return true;
+    }
+
+    Path::new(output)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| {
+            ext.eq_ignore_ascii_case("parquet")
+                || ext.eq_ignore_ascii_case("geojson")
+                || ext.eq_ignore_ascii_case("json")
+                || ext.eq_ignore_ascii_case("fgb")
+                || ext.eq_ignore_ascii_case("csv")
+        })
+        .unwrap_or(false)
+}
+
+fn output_layer_name_from_destination(output: &str) -> Option<String> {
+    Path::new(output)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .filter(|stem| !stem.is_empty())
+        .map(|stem| stem.to_string())
+}
+
 async fn import_shapes(
     downloaded_shapes: Vec<DownloadedItem<ShapeUrlMeta>>,
+    target_serveys: &[DlServey<'static>],
     output: &str,
     output_format: Option<&str>,
+    output_layer_name: Option<&str>,
     tmp_dir: &Path,
 ) -> Result<()> {
-    let pb = ProgressBar::new(DL_SERVEY_IDS.len() as u64);
+    let pb = ProgressBar::new(target_serveys.len() as u64);
     let bar_style = ProgressStyle::default_bar()
         .template("{msg} [{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7}")?
         .progress_chars("##-");
     pb.set_style(bar_style);
     pb.set_message("Importing shapes with ogr2ogr...");
 
-    for servey in DL_SERVEY_IDS.iter() {
+    for servey in target_serveys.iter() {
         let shapes_for_year = downloaded_shapes
             .iter()
             .filter(|item| item.metadata.dlservey.year == servey.year)
@@ -114,7 +173,7 @@ async fn import_shapes(
         gdal::create_vrt(&vrt_path, &shapes_for_year)
             .await
             .with_context(|| format!("when creating VRT: {}", &vrt_path.display()))?;
-        gdal::load(&vrt_path, output, output_format)
+        gdal::load(&vrt_path, output, output_format, output_layer_name)
             .await
             .with_context(|| format!("when loading VRT: {}", &vrt_path.display()))?;
         pb.inc(1);
@@ -140,7 +199,10 @@ fn as_postgres_url<'a>(output: &'a str, output_format: Option<&str>) -> Option<&
     None
 }
 
-async fn data_postprocessing_cleanup(postgres_url: &str) -> Result<()> {
+async fn data_postprocessing_cleanup(
+    postgres_url: &str,
+    target_serveys: &[DlServey<'static>],
+) -> Result<()> {
     let (client, connection) = tokio_postgres::connect(postgres_url, NoTls)
         .await
         .with_context(|| "when connecting to PostgreSQL")?;
@@ -152,7 +214,7 @@ async fn data_postprocessing_cleanup(postgres_url: &str) -> Result<()> {
 
     km_to_sql::postgres::init_schema(&client).await?;
 
-    for servey in DL_SERVEY_IDS.iter() {
+    for servey in target_serveys.iter() {
         let table_name = format!("jp_estat_areamap_{}", servey.year);
         let mut srid = "6668"; // 日本測地系2011
         if servey.datum == "2000" {
@@ -247,9 +309,29 @@ pub async fn process_areamap(
     output: &str,
     output_format: Option<&str>,
     tmp_dir: &Path,
+    survey_year: Option<u32>,
 ) -> Result<()> {
+    let target_serveys = get_target_serveys(survey_year)?;
+    let single_layer_output = is_single_layer_output(output, output_format);
+    if single_layer_output && target_serveys.len() > 1 {
+        bail!(
+            "Output '{}' appears to be a single-layer format. Use `--year` to export a single survey year.",
+            output
+        );
+    }
+
+    let output_layer_name = if single_layer_output && target_serveys.len() == 1 {
+        output_layer_name_from_destination(output)
+    } else {
+        None
+    };
+
+    gdal::ensure_available()
+        .await
+        .with_context(|| "when checking GDAL availability with `ogrinfo --version`")?;
+
     // 1. Get URLs and metadata
-    let shape_url_metas = get_all_shape_urls();
+    let shape_url_metas = get_all_shape_urls(&target_serveys);
 
     // 2. Download all shapes and unzip them using the generic function
     let downloaded_items: Vec<DownloadedItem<ShapeUrlMeta>> = download::download_and_extract_all(
@@ -266,13 +348,20 @@ pub async fn process_areamap(
     .with_context(|| format!("when downloading and extracting shapes"))?;
 
     // 3. Import the shapefiles using ogr2ogr
-    import_shapes(downloaded_items, output, output_format, tmp_dir)
-        .await
-        .with_context(|| format!("when importing to ogr2ogr"))?;
+    import_shapes(
+        downloaded_items,
+        &target_serveys,
+        output,
+        output_format,
+        output_layer_name.as_deref(),
+        tmp_dir,
+    )
+    .await
+    .with_context(|| format!("when importing to ogr2ogr"))?;
 
     // 4. For PostgreSQL outputs, clean up the data & update metadata
     if let Some(postgres_url) = as_postgres_url(output, output_format) {
-        data_postprocessing_cleanup(postgres_url).await?;
+        data_postprocessing_cleanup(postgres_url, &target_serveys).await?;
     } else {
         println!(
             "PostgreSQL postprocessing was skipped because output is not a PostgreSQL datasource."
@@ -280,4 +369,37 @@ pub async fn process_areamap(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_single_layer_output, output_layer_name_from_destination};
+
+    #[test]
+    fn detects_single_layer_by_extension() {
+        assert!(is_single_layer_output("./output/areamap.parquet", None));
+        assert!(is_single_layer_output("./output/areamap.geojson", None));
+        assert!(!is_single_layer_output("./output/areamap.gpkg", None));
+    }
+
+    #[test]
+    fn detects_single_layer_by_output_format() {
+        assert!(is_single_layer_output(
+            "./output/areamap.gpkg",
+            Some("Parquet")
+        ));
+        assert!(!is_single_layer_output(
+            "PG:host=127.0.0.1 dbname=jp_estat",
+            Some("Parquet")
+        ));
+    }
+
+    #[test]
+    fn derives_layer_name_from_output_path() {
+        assert_eq!(
+            output_layer_name_from_destination("./output/areamap.parquet"),
+            Some("areamap".to_string())
+        );
+        assert_eq!(output_layer_name_from_destination(""), None);
+    }
 }

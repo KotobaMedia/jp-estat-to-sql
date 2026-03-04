@@ -2,6 +2,46 @@ use anyhow::Result;
 use std::path::PathBuf;
 use tokio::process::Command;
 
+pub async fn ensure_available() -> Result<()> {
+    let output = Command::new("ogrinfo")
+        .arg("--version")
+        .output()
+        .await
+        .map_err(|err| {
+            anyhow::anyhow!(
+                "GDAL is required for this command. Failed to run `ogrinfo --version`: {}",
+                err
+            )
+        })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let detail = stderr.trim();
+        if !detail.is_empty() {
+            anyhow::bail!(
+                "GDAL is required for this command. `ogrinfo --version` failed: {}",
+                detail
+            );
+        }
+
+        let detail = stdout.trim();
+        if !detail.is_empty() {
+            anyhow::bail!(
+                "GDAL is required for this command. `ogrinfo --version` failed: {}",
+                detail
+            );
+        }
+
+        anyhow::bail!(
+            "GDAL is required for this command. `ogrinfo --version` exited with status {}",
+            output.status
+        );
+    }
+
+    Ok(())
+}
+
 pub async fn create_vrt(out: &PathBuf, shapes: &Vec<PathBuf>) -> Result<()> {
     if shapes.is_empty() {
         anyhow::bail!("No shapefiles found");
@@ -53,12 +93,20 @@ fn is_postgresql_output(output: &str, output_format: Option<&str>) -> bool {
             .unwrap_or(false)
 }
 
-pub async fn load(vrt: &PathBuf, output: &str, output_format: Option<&str>) -> Result<()> {
+pub async fn load(
+    vrt: &PathBuf,
+    output: &str,
+    output_format: Option<&str>,
+    output_layer_name: Option<&str>,
+) -> Result<()> {
     let mut cmd = Command::new("ogr2ogr");
     if let Some(format) = output_format {
         cmd.arg("-f").arg(format);
     }
     cmd.arg("-overwrite");
+    if let Some(layer_name) = output_layer_name {
+        cmd.arg("-nln").arg(layer_name);
+    }
 
     if is_postgresql_output(output, output_format) {
         cmd.arg("-lco")
