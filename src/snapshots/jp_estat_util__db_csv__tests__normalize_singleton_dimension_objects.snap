@@ -1,0 +1,32 @@
+---
+source: src/db_csv.rs
+assertion_line: 1096
+expression: "serde_json::json!({\n    \"dimensions\": bundle.rows, \"dimension_items\": bundle.items,\n})"
+---
+{
+  "dimension_items": [
+    {
+      "dimension_id": "cat01",
+      "item_code": "001",
+      "item_name": "総数",
+      "level": "1",
+      "note": "総数の説明",
+      "parent_code": "",
+      "source_order": 1,
+      "stats_data_id": "0000000001",
+      "unit": "人"
+    }
+  ],
+  "dimensions": [
+    {
+      "classification_level": "1",
+      "dimension_id": "cat01",
+      "dimension_name": "性別",
+      "is_area": false,
+      "is_tab": false,
+      "is_time": false,
+      "source_order": 1,
+      "stats_data_id": "0000000001"
+    }
+  ]
+}

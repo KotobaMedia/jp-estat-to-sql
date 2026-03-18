@@ -1,0 +1,26 @@
+{
+  "GET_STATS_DATA": {
+    "RESULT": {
+      "STATUS": "0",
+      "DATE": "2026-03-18T12:35:10+09:00"
+    },
+    "STATISTICAL_DATA": {
+      "RESULT_INF": {
+        "TOTAL_NUMBER": 1
+      },
+      "DATA_INF": {
+        "ANNOTATION": {
+          "@annotation": "A1",
+          "$": "速報値"
+        },
+        "VALUE": {
+          "@time": "2025000000",
+          "@cat01": "001",
+          "@annotation": "A1",
+          "@unit": "人",
+          "$": "123"
+        }
+      }
+    }
+  }
+}

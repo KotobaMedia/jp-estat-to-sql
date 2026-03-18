@@ -3,7 +3,9 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 mod areamap;
+mod db_csv;
 mod download;
+mod estat_api;
 mod gdal;
 mod mesh;
 mod mesh_csv;
@@ -122,6 +124,37 @@ enum Commands {
         #[arg(long, value_delimiter = ',')]
         year: Option<Vec<u16>>,
     },
+
+    /// e-Stat API の統計表（DB系）を canonical CSV に出力
+    DbCsv {
+        /// e-Stat API の appId
+        #[arg(long)]
+        app_id: String,
+
+        /// 出力先ディレクトリ
+        #[arg(long)]
+        output_dir: PathBuf,
+
+        /// 対象の statsDataId
+        #[arg(long = "stats-data-id", required = true)]
+        stats_data_id: Vec<String>,
+
+        /// 既存の observation CSV がある statsDataId を再利用
+        #[arg(long)]
+        resume: bool,
+
+        /// 既存の出力を上書き
+        #[arg(long)]
+        overwrite: bool,
+
+        /// API の同時処理数
+        #[arg(long, default_value_t = 4)]
+        concurrency: usize,
+
+        /// 生の API JSON を保存
+        #[arg(long)]
+        raw_json: bool,
+    },
 }
 
 #[tokio::main]
@@ -182,6 +215,26 @@ async fn main() -> Result<()> {
         }
         Commands::MeshInfo { year } => {
             mesh_info::process_mesh_info(&tmp_dir, year.as_deref()).await?;
+        }
+        Commands::DbCsv {
+            app_id,
+            output_dir,
+            stats_data_id,
+            resume,
+            overwrite,
+            concurrency,
+            raw_json,
+        } => {
+            db_csv::process_db_csv(
+                app_id,
+                output_dir,
+                stats_data_id,
+                *resume,
+                *overwrite,
+                *concurrency,
+                *raw_json,
+            )
+            .await?;
         }
     }
 
