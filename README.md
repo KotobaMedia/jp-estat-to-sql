@@ -8,11 +8,30 @@ GISデータについては、[e-Statのデータ注意情報](https://www.e-sta
 
 このツールは、e-Stat（政府統計の総合窓口）から統計データと地理情報をダウンロードし、サブコマンドに応じて PostgreSQL への取り込みやファイル出力を行うコマンドラインツールです。
 
-## インストール
+## インストール方法
+
+このツールは Rust で書かれていますが、コンパイル済みバイナリも下記のアーキテクチャで用意しています。
+
+- macOS (Apple Silicon)
+- Windows (x86_64)
+- Linux (x86_64)
+
+[最新の Release](https://github.com/KotobaMedia/jp-estat-util/releases/latest) から利用環境向けの zip アーカイブをダウンロードして解凍すると、コマンドラインから `jp-estat-util` を実行できます。
+
+Rust 環境をお持ちの方は、GitHub から直接インストールできます。
+
+```shell
+cargo install --git https://github.com/KotobaMedia/jp-estat-util.git jp-estat-util
+```
+
+このリポジトリを clone 済みであれば、ローカルソースからインストールすることもできます。
 
 ```shell
 cargo install --path .
 ```
+
+> [!NOTE]
+> `areamap` サブコマンドでは `ogr2ogr` が必要です。`mesh` など PostgreSQL に取り込むサブコマンドでは、接続先の PostgreSQL を別途用意してください。
 
 ## 使用方法
 
