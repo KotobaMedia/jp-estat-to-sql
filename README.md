@@ -367,6 +367,8 @@ jp-estat-util db-csv \
 - `manifest.json`
 - `raw/meta/<ID>.json`, `raw/data/<ID>.json`（`--raw-json` 指定時）
 
+DuckDB での分析例は [EXAMPLES_DB_CSV.md](./EXAMPLES_DB_CSV.md) を参照してください。
+
 #### 補足
 
 - JSON API のみを利用します。
