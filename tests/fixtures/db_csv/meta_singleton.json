@@ -1,0 +1,64 @@
+{
+  "GET_META_INFO": {
+    "RESULT": {
+      "STATUS": "0",
+      "DATE": "2026-03-18T12:34:56+09:00"
+    },
+    "PARAMETER": {
+      "APP_ID": "test-app-id",
+      "STATS_DATA_ID": "0000000001"
+    },
+    "METADATA_INF": {
+      "TABLE_INF": {
+        "@id": "0000000001",
+        "STAT_NAME": {
+          "@code": "00200521",
+          "$": "人口推計"
+        },
+        "GOV_ORG": {
+          "@code": "00200",
+          "$": "総務省"
+        },
+        "TITLE": {
+          "$": "人口推計 年次"
+        },
+        "TITLE_SPEC": {
+          "TABLE_NAME": {
+            "$": "人口推計 年次"
+          }
+        },
+        "SURVEY_DATE": "2025",
+        "OPEN_DATE": "2026-01-15",
+        "SMALL_AREA": "0",
+        "COLLECT_AREA": {
+          "@code": "00000",
+          "$": "全国"
+        },
+        "MAIN_CATEGORY": {
+          "@code": "01",
+          "$": "人口"
+        },
+        "SUB_CATEGORY": {
+          "@code": "0101",
+          "$": "総人口"
+        }
+      },
+      "CLASS_INF": {
+        "CLASS_OBJ": {
+          "@id": "cat01",
+          "@name": "性別",
+          "CLASS": {
+            "@code": "001",
+            "@name": "総数",
+            "@level": "1",
+            "@unit": "人"
+          },
+          "EXPLANATION": {
+            "@id": "001",
+            "$": "総数の説明"
+          }
+        }
+      }
+    }
+  }
+}

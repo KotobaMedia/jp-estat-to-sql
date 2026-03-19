@@ -1,0 +1,21 @@
+---
+source: src/db_csv.rs
+assertion_line: 1116
+expression: table
+---
+{
+  "stats_data_id": "0000000001",
+  "table_name": "人口推計 年次",
+  "stat_code": "00200521",
+  "stat_name": "人口推計",
+  "gov_org_code": "00200",
+  "gov_org_name": "総務省",
+  "survey_date": "2025",
+  "open_date": "2026-01-15",
+  "small_area": "0",
+  "collect_area": "00000",
+  "main_category_code": "01",
+  "sub_category_code": "0101",
+  "link": "https://www.e-stat.go.jp/dbview?sid=0000000001",
+  "fetched_at": "2026-03-18T12:34:56+09:00"
+}

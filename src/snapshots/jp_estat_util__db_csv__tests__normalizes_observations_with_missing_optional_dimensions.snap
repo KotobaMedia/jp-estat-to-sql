@@ -1,0 +1,33 @@
+---
+source: src/db_csv.rs
+assertion_line: 1128
+expression: rows
+---
+[
+  {
+    "stats_data_id": "0000000001",
+    "value": "123",
+    "value_text": "123",
+    "annotation": "速報値",
+    "unit": "人",
+    "time_code": "2025000000",
+    "area_code": "",
+    "tab_code": "",
+    "cat01_code": "001",
+    "cat02_code": "",
+    "cat03_code": "",
+    "cat04_code": "",
+    "cat05_code": "",
+    "cat06_code": "",
+    "cat07_code": "",
+    "cat08_code": "",
+    "cat09_code": "",
+    "cat10_code": "",
+    "cat11_code": "",
+    "cat12_code": "",
+    "cat13_code": "",
+    "cat14_code": "",
+    "cat15_code": "",
+    "fetched_at": "2026-03-18T12:35:10+09:00"
+  }
+]

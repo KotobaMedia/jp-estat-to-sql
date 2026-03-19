@@ -25,6 +25,7 @@ jp-estat-util [OPTIONS] <COMMAND>
 ### オプション
 
 - `--tmp-dir <PATH>`: 中間ファイルの保存先（デフォルト: `./tmp`）
+- `--app-id <APP_ID>`: e-Stat API を使うサブコマンド向けの appId（省略時は `ESTAT_APP_ID` を使用）
 - `--help`: ヘルプを表示
 - `--version`: バージョンを表示
 
@@ -35,7 +36,7 @@ jp-estat-util [OPTIONS] <COMMAND>
 - `areamap`: `--year` で対象年度を1つに絞り込めます（任意）。
 - `mesh`: `--postgres-url` で PostgreSQL 接続文字列を指定します（必須）。
 
-`mesh-info` / `mesh-csv` / `mesh-tile` サブコマンドでは DB 接続は不要です。
+`mesh-info` / `mesh-csv` / `mesh-tile` / `db-csv` サブコマンドでは DB 接続は不要です。
 
 例:
 ```shell
@@ -99,7 +100,7 @@ jp-estat-util areamap \
 - `--output-crs <OUTPUT_CRS>`: 出力座標参照系（`ogr2ogr -t_srs` に渡す値。例: `EPSG:4326`）
 - `--year <YEAR>`: 対象年度で絞り込み（単年のみ。`2000`, `2005`, `2010`, `2015`, `2020`）
 
-`Parquet` / `GeoJSON` / `FlatGeobuf` / `CSV` などの単一レイヤー形式では、`--year` が必須です。  
+`Parquet` / `GeoJSON` / `FlatGeobuf` / `CSV` などの単一レイヤー形式では、`--year` が必須です。
 この場合、出力レイヤー名は出力ファイル名（拡張子除く）に自動調整されます。
 
 #### 処理内容
@@ -322,6 +323,79 @@ jp-estat-util mesh-csv \
 - `--year <YEAR>`: 調査年度（例: 2020）
 - `--survey <SURVEY>`: 調査名
 - `--output <OUTPUT>`: 結合CSVの出力先パス
+
+---
+
+### db-csv - 統計表（DB系）の canonical CSV 出力
+
+e-Stat API の `getMetaInfo` / `getStatsData` を使い、DB系の統計表を canonical CSV 群に正規化して出力します。BigQuery への直接アップロード、ファイル系データセット、GIS/Shape データの取得は行いません。
+
+#### 使用方法
+
+```shell
+jp-estat-util db-csv \
+  --app-id YOUR_APP_ID \
+  --output-dir ./output/db_csv \
+  --stats-data-id 0003448228 \
+  --stats-data-id 0004023604 \
+  --raw-json
+```
+
+`--app-id` を省略する場合は、事前に `ESTAT_APP_ID` をの環境変数を設定してください。
+
+上記の `statsDataId` は実在する e-Stat の DB 統計表です。
+
+- `0003448228`: [人口推計 / 各年10月1日現在人口 / 令和２年国勢調査基準 / 統計表001 年齢（各歳），男女別人口及び人口性比－総人口，日本人人口](https://www.e-stat.go.jp/dbview?sid=0003448228)
+- `0004023604`: [家計調査 / 家計収支編 / 二人以上の世帯 / 品目分類011 品目分類（2025年改定）（総数：数量）](https://www.e-stat.go.jp/dbview?sid=0004023604)
+
+#### パラメータ
+
+- `--app-id <APP_ID>`: e-Stat API の appId（省略時は `ESTAT_APP_ID`）
+- `--output-dir <OUTPUT_DIR>`: 出力先ディレクトリ
+- `--stats-data-id <STATS_DATA_ID>`: 対象の `statsDataId`（繰り返し指定可）
+- `--resume`: 既存の `observations/stats_data_id=<ID>.csv` があるデータセットを再利用
+- `--overwrite`: 既存の出力ファイルを上書き
+- `--concurrency <N>`: API の同時処理数（既定: `4`）
+- `--raw-json`: 生の API JSON を `raw/meta/<ID>.json` と `raw/data/<ID>.json` に保存
+
+#### 出力内容
+
+- `tables.csv`
+- `dimensions.csv`
+- `dimension_items.csv`
+- `observations/stats_data_id=<ID>.csv`
+- `manifest.json`
+- `raw/meta/<ID>.json`, `raw/data/<ID>.json`（`--raw-json` 指定時）
+
+DuckDB での分析例は [EXAMPLES_DB_CSV.md](./EXAMPLES_DB_CSV.md) を参照してください。
+
+#### 補足
+
+- JSON API のみを利用します。
+- 観測値は `time` / `area` / `tab` / `cat01` .. `cat15` の raw code をそのまま保持します。
+- `value_text` には API の元値、`value` には数値として扱える値のみを出力します。
+
+#### 必要な `statsDataId` の探し方
+
+`statsDataId` は e-Stat API で指定する「統計表ID」です。e-Stat の API ドキュメントでも、`getMetaInfo` / `getStatsData` の `statsDataId` は「統計表情報取得で得られる統計表ID」として定義されています。
+
+- API ドキュメント: [APIの使い方](https://www.e-stat.go.jp/api/api-dev/how_to_use)
+- API 仕様: [政府統計の総合窓口（e-Stat）のAPI仕様](https://www.e-stat.go.jp/api/api-info/e-stat-manual)
+- DB 検索画面: [データベース | 統計データを探す](https://www.e-stat.go.jp/stat-search/database?page=1&layout=dataset)
+
+実際には、次の手順で見つけるのが最も簡単です。
+
+1. 上の「データベース」検索画面で、欲しい統計を開きます。
+2. テーブル一覧から、欲しい粒度の表を選びます。
+3. その行の `DB` または表題リンクを開きます。
+4. 開いたページの URL が `https://www.e-stat.go.jp/dbview?sid=0003448228` のような形なら、その `sid` が `--stats-data-id` に渡す値です。
+
+判断のコツ:
+
+- ほしい違いが表題そのものに出ている場合は、別の `statsDataId` を選びます。
+- 例: `総世帯` と `二人以上の世帯`、`金額` と `数量`、`令和２年国勢調査基準` と別基準は、通常は別テーブルなので別の `sid` です。
+- ほしい違いが表の中の軸に入っている場合は、同じ `statsDataId` のままです。
+- 例: `年齢`、`男女`、`都道府県`、`年月`、`品目コード` などは、このコマンドでは `dimensions.csv` / `dimension_items.csv` / `observations/*.csv` に code として出力されます。
 
 ---
 
