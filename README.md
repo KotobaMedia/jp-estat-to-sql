@@ -25,6 +25,7 @@ jp-estat-util [OPTIONS] <COMMAND>
 ### オプション
 
 - `--tmp-dir <PATH>`: 中間ファイルの保存先（デフォルト: `./tmp`）
+- `--app-id <APP_ID>`: e-Stat API を使うサブコマンド向けの appId（省略時は `ESTAT_APP_ID` を使用）
 - `--help`: ヘルプを表示
 - `--version`: バージョンを表示
 
@@ -99,7 +100,7 @@ jp-estat-util areamap \
 - `--output-crs <OUTPUT_CRS>`: 出力座標参照系（`ogr2ogr -t_srs` に渡す値。例: `EPSG:4326`）
 - `--year <YEAR>`: 対象年度で絞り込み（単年のみ。`2000`, `2005`, `2010`, `2015`, `2020`）
 
-`Parquet` / `GeoJSON` / `FlatGeobuf` / `CSV` などの単一レイヤー形式では、`--year` が必須です。  
+`Parquet` / `GeoJSON` / `FlatGeobuf` / `CSV` などの単一レイヤー形式では、`--year` が必須です。
 この場合、出力レイヤー名は出力ファイル名（拡張子除く）に自動調整されます。
 
 #### 処理内容
@@ -340,6 +341,8 @@ jp-estat-util db-csv \
   --raw-json
 ```
 
+`--app-id` を省略する場合は、事前に `ESTAT_APP_ID` をの環境変数を設定してください。
+
 上記の `statsDataId` は実在する e-Stat の DB 統計表です。
 
 - `0003448228`: [人口推計 / 各年10月1日現在人口 / 令和２年国勢調査基準 / 統計表001 年齢（各歳），男女別人口及び人口性比－総人口，日本人人口](https://www.e-stat.go.jp/dbview?sid=0003448228)
@@ -347,7 +350,7 @@ jp-estat-util db-csv \
 
 #### パラメータ
 
-- `--app-id <APP_ID>`: e-Stat API の appId
+- `--app-id <APP_ID>`: e-Stat API の appId（省略時は `ESTAT_APP_ID`）
 - `--output-dir <OUTPUT_DIR>`: 出力先ディレクトリ
 - `--stats-data-id <STATS_DATA_ID>`: 対象の `statsDataId`（繰り返し指定可）
 - `--resume`: 既存の `observations/stats_data_id=<ID>.csv` があるデータセットを再利用

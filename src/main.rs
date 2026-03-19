@@ -1,5 +1,6 @@
-use anyhow::Result;
+use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
+use std::env;
 use std::path::PathBuf;
 
 mod areamap;
@@ -24,6 +25,11 @@ struct Cli {
     /// デフォルトは `./tmp` となります。
     #[arg(long)]
     tmp_dir: Option<PathBuf>,
+
+    /// e-Stat API の appId
+    /// 省略時は `ESTAT_APP_ID` 環境変数を使います。
+    #[arg(long, global = true)]
+    app_id: Option<String>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -127,10 +133,6 @@ enum Commands {
 
     /// e-Stat API の統計表（DB系）を canonical CSV に出力
     DbCsv {
-        /// e-Stat API の appId
-        #[arg(long)]
-        app_id: String,
-
         /// 出力先ディレクトリ
         #[arg(long)]
         output_dir: PathBuf,
@@ -157,10 +159,32 @@ enum Commands {
     },
 }
 
+fn resolve_app_id(app_id_arg: Option<&str>, env_app_id: Option<&str>) -> Result<String> {
+    let app_id = app_id_arg
+        .or(env_app_id)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    match app_id {
+        Some(app_id) => Ok(app_id.to_string()),
+        None => bail!("e-Stat API app id is required; pass --app-id or set ESTAT_APP_ID"),
+    }
+}
+
+impl Cli {
+    fn require_app_id(&self) -> Result<String> {
+        let env_app_id = env::var("ESTAT_APP_ID").ok();
+        resolve_app_id(self.app_id.as_deref(), env_app_id.as_deref())
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    let tmp_dir = cli.tmp_dir.unwrap_or_else(|| PathBuf::from("./tmp"));
+    let tmp_dir = cli
+        .tmp_dir
+        .clone()
+        .unwrap_or_else(|| PathBuf::from("./tmp"));
     tokio::fs::create_dir_all(&tmp_dir).await?;
     match &cli.command {
         Commands::Areamap {
@@ -217,7 +241,6 @@ async fn main() -> Result<()> {
             mesh_info::process_mesh_info(&tmp_dir, year.as_deref()).await?;
         }
         Commands::DbCsv {
-            app_id,
             output_dir,
             stats_data_id,
             resume,
@@ -225,8 +248,9 @@ async fn main() -> Result<()> {
             concurrency,
             raw_json,
         } => {
+            let app_id = cli.require_app_id()?;
             db_csv::process_db_csv(
-                app_id,
+                &app_id,
                 output_dir,
                 stats_data_id,
                 *resume,
@@ -239,4 +263,74 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Cli, resolve_app_id};
+    use clap::Parser;
+
+    #[test]
+    fn explicit_app_id_wins_over_env() {
+        let app_id = resolve_app_id(Some("cli-app-id"), Some("env-app-id")).unwrap();
+        assert_eq!(app_id, "cli-app-id");
+    }
+
+    #[test]
+    fn falls_back_to_env_app_id() {
+        let app_id = resolve_app_id(None, Some("env-app-id")).unwrap();
+        assert_eq!(app_id, "env-app-id");
+    }
+
+    #[test]
+    fn rejects_missing_app_id() {
+        let err = resolve_app_id(None, None).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "e-Stat API app id is required; pass --app-id or set ESTAT_APP_ID"
+        );
+    }
+
+    #[test]
+    fn rejects_blank_app_id() {
+        let err = resolve_app_id(Some("   "), Some("")).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "e-Stat API app id is required; pass --app-id or set ESTAT_APP_ID"
+        );
+    }
+
+    #[test]
+    fn parses_global_app_id_before_subcommand() {
+        let cli = Cli::try_parse_from([
+            "jp-estat-util",
+            "--app-id",
+            "cli-app-id",
+            "db-csv",
+            "--output-dir",
+            "./out",
+            "--stats-data-id",
+            "0003448228",
+        ])
+        .unwrap();
+
+        assert_eq!(cli.app_id.as_deref(), Some("cli-app-id"));
+    }
+
+    #[test]
+    fn parses_global_app_id_after_subcommand() {
+        let cli = Cli::try_parse_from([
+            "jp-estat-util",
+            "db-csv",
+            "--app-id",
+            "cli-app-id",
+            "--output-dir",
+            "./out",
+            "--stats-data-id",
+            "0003448228",
+        ])
+        .unwrap();
+
+        assert_eq!(cli.app_id.as_deref(), Some("cli-app-id"));
+    }
 }
